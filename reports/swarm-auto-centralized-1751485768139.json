@@ -1,0 +1,13 @@
+{
+  "objective": "solve all issues when running npm run dev",
+  "strategy": "auto",
+  "mode": "centralized",
+  "maxAgents": 5,
+  "timeout": 60,
+  "parallel": false,
+  "monitor": false,
+  "output": "json",
+  "outputDir": "./reports",
+  "timestamp": "2025-07-02T19:49:28.139Z",
+  "id": "swarm-auto-centralized-1751485768139"
+}
