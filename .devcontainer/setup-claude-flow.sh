@@ -6,7 +6,7 @@ echo "Setting up Claude Flow environment..."
 # Install dependencies
 npm install
 npm install -g @anthropic-ai/claude-code
-npx claude-flow@latest init --spar
+npx claude-flow@latest init --sparc --yes
 
 
 # Set up Claude permissions
