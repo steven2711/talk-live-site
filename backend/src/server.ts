@@ -5,14 +5,14 @@ import cors from 'cors'
 import helmet from 'helmet'
 import rateLimit from 'express-rate-limit'
 
-import { setupSocketHandlers } from './services/socketService'
+import { setupSocketHandlers } from './services/socketService.js'
 import {
   setupVoiceRoomSocketHandlers,
   getVoiceRoomStats,
-} from './services/voiceRoomSocketService'
-import { ChatManager } from './services/chatManager'
-import { GlobalVoiceRoomManager } from './services/globalVoiceRoomManager'
-import { logger } from './utils/logger'
+} from './services/voiceRoomSocketService.js'
+import { ChatManager } from './services/chatManager.js'
+import { GlobalVoiceRoomManager } from './services/globalVoiceRoomManager.js'
+import { logger } from './utils/logger.js'
 import type {
   ServerToClientEvents,
   ClientToServerEvents,
