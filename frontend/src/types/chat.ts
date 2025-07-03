@@ -9,6 +9,8 @@ export interface User {
   lastActivity: Date
 }
 
+
+
 export interface Message {
   id: string
   content: string
@@ -40,12 +42,123 @@ export enum ConnectionStatus {
   WAITING_FOR_PARTNER = 'waiting_for_partner',
   IN_CHAT = 'in_chat',
   PARTNER_DISCONNECTED = 'partner_disconnected',
+  IN_VOICE_ROOM = 'in_voice_room',
+  WAITING_IN_QUEUE = 'waiting_in_queue',
+}
+
+// WebRTC-specific types
+export enum VoiceCallStatus {
+  IDLE = 'idle',
+  INITIATING = 'initiating',
+  RINGING = 'ringing',
+  CONNECTING = 'connecting',
+  CONNECTED = 'connected',
+  ENDED = 'ended',
+  FAILED = 'failed'
+}
+
+// Global Voice Room Types
+export enum VoiceRoomRole {
+  LISTENER = 'listener',
+  SPEAKER = 'speaker',
+  QUEUE = 'queue'
+}
+
+// Alias for consistency with socket events
+export type UserRole = VoiceRoomRole;
+
+export interface VoiceRoomUser {
+  user: User
+  role: VoiceRoomRole
+  queuePosition?: number // Only for QUEUE role
+  joinedAt: Date
+  isMuted: boolean
+  audioLevel: number // 0-100 for visualization
+  volume: number // 0-1 for volume control
+}
+
+export interface GlobalVoiceRoom {
+  id: string
+  name: string
+  isActive: boolean
+  speakers: VoiceRoomUser[] // Max 2 speakers
+  listeners: VoiceRoomUser[]
+  queue: VoiceRoomUser[] // Ordered queue for speaker positions
+  createdAt: Date
+  lastActivity: Date
+  maxSpeakers: number // Currently 2
+}
+
+export interface WebRTCSignalingMessage {
+  type: 'offer' | 'answer' | 'ice-candidate'
+  data: RTCSessionDescriptionInit | RTCIceCandidate
+  callId: string
+}
+
+// Voice Room Broadcasting Types
+export interface VoiceRoomBroadcastMessage {
+  type: 'broadcast-offer' | 'broadcast-answer' | 'broadcast-ice-candidate' | 'speaker-offer' | 'speaker-answer' | 'speaker-ice-candidate'
+  data: RTCSessionDescriptionInit | RTCIceCandidate
+  roomId: string
+  fromUserId: string
+  toUserId?: string // For targeted messages
+}
+
+export interface AudioMixingConfig {
+  masterVolume: number
+  speakerVolumes: Record<string, number> // userId -> volume
+  enableEcho: boolean
+  enableNoiseSuppression: boolean
+}
+
+export interface VoiceCallState {
+  status: VoiceCallStatus
+  callId: string | null
+  isInitiator: boolean
+  startTime: Date | null
+  endTime: Date | null
+  error: string | null
+}
+
+export interface AudioState {
+  isMuted: boolean
+  isSpeakerOn: boolean
+  volume: number
+  hasPermission: boolean
+  isRecording: boolean
+}
+
+// Consolidated VoiceCallState interface
+export interface VoiceCallState {
+  status: VoiceCallStatus
+  callId: string | null
+  isInitiator: boolean
+  startTime: Date | null  
+  endTime: Date | null
+  error: string | null
 }
 
 export interface QueueUser {
   user: User
   queuePosition: number
   waitingSince: Date
+}
+
+// Voice Room State
+export interface VoiceRoomState {
+  roomId: string | null
+  speakers: VoiceRoomUser[]
+  listeners: VoiceRoomUser[]
+  totalUsers: number
+  maxSpeakers: number
+  isRecording: boolean
+  roomStartTime: Date | null
+}
+
+export interface AudioLevelUpdate {
+  userId: string
+  audioLevel: number
+  timestamp: Date
 }
 
 // Socket.io Event Types
@@ -59,6 +172,33 @@ export interface ServerToClientEvents {
   // Message events
   message_received: (message: Message) => void
   typing_indicator: (isTyping: boolean, username: string) => void
+  
+  // Voice room events
+  voice_room_joined: (roomState: VoiceRoomState) => void
+  voice_room_updated: (roomState: VoiceRoomState) => void
+  speaker_changed: (newSpeakers: VoiceRoomUser[]) => void
+  audio_level_update: (update: AudioLevelUpdate) => void
+  user_role_changed: (userId: string, newRole: UserRole) => void
+  queue_updated: (listeners: VoiceRoomUser[]) => void
+  speaker_volume_changed: (userId: string, volume: number) => void
+  
+  // Voice call events
+  voice_call_offer: (offer: RTCSessionDescriptionInit) => void
+  voice_call_answer: (answer: RTCSessionDescriptionInit) => void
+  voice_call_ice_candidate: (candidate: RTCIceCandidateInit) => void
+  voice_call_request: (from: string) => void
+  voice_call_accepted: () => void
+  voice_call_rejected: () => void
+  voice_call_ended: () => void
+  
+  // Broadcasting events
+  broadcast_offer: (data: { offer: RTCSessionDescriptionInit, speakerId: string, speakerUsername: string }) => void
+  broadcast_answer: (data: { answer: RTCSessionDescriptionInit, listenerId: string }) => void
+  broadcast_ice_candidate: (data: { candidate: RTCIceCandidateInit, peerId: string }) => void
+  speaker_promoted: (data: { newSpeakerId: string, listenerIds: string[] }) => void
+  speaker_demoted: (data: { demotedSpeakerId: string }) => void
+  room_state_updated: (data: { speakers: string[], listeners: string[], queue: string[] }) => void
+  peer_disconnected: (peerId: string) => void
   
   // System events
   error: (error: string) => void
@@ -74,6 +214,32 @@ export interface ClientToServerEvents {
   send_message: (content: string) => void
   typing_start: () => void
   typing_stop: () => void
+  
+  // Voice room events
+  join_voice_room: (username: string) => void
+  leave_voice_room: () => void
+  request_speaker_role: () => void
+  set_speaker_volume: (volume: number) => void
+  mute_speaker: (muted: boolean) => void
+  send_audio_level: (level: number) => void
+  
+  // Voice call events
+  voice_call_request: () => void
+  voice_call_accept: () => void
+  voice_call_reject: () => void
+  voice_call_end: () => void
+  voice_call_offer: (offer: RTCSessionDescriptionInit) => void
+  voice_call_answer: (answer: RTCSessionDescriptionInit) => void
+  voice_call_ice_candidate: (candidate: RTCIceCandidateInit) => void
+  
+  // Broadcasting events
+  broadcast_offer: (data: { offer: RTCSessionDescriptionInit, listenerId: string, speakerId: string }) => void
+  broadcast_answer: (data: { answer: RTCSessionDescriptionInit, speakerId: string, listenerId: string }) => void
+  broadcast_ice_candidate: (data: { candidate: RTCIceCandidateInit, peerId: string }) => void
+  start_broadcasting: (listenerIds: string[]) => void
+  stop_broadcasting: () => void
+  ready_to_listen: (data: { speakerIds: string[] }) => void
+  stop_listening: () => void
   
   // Heartbeat
   ping: () => void
@@ -166,25 +332,8 @@ export interface TypingIndicatorProps {
   username: string
 }
 
-export default {
-  User,
-  Message,
-  MessageType,
-  ChatRoom,
-  ConnectionStatus,
-  QueueUser,
-  ServerToClientEvents,
-  ClientToServerEvents,
-  InterServerEvents,
-  SocketData,
-  ChatError,
-  ErrorCodes,
-  ChatState,
-  UIState,
-  UsernameFormData,
-  MessageFormData,
-  ChatConfig,
-  ChatMessageProps,
-  ConnectionStatusProps,
-  TypingIndicatorProps,
+export interface TypingIndicator {
+  userId: string
+  username: string
+  isTyping: boolean
 }

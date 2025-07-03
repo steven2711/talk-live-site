@@ -1,7 +1,7 @@
 import React from 'react';
 import { FiUsers, FiClock, FiX } from 'react-icons/fi';
 import { useChatStore } from '../store/chatStore';
-import { cn } from '../utils';
+import { ConnectionStatus } from '../types';
 
 const WaitingScreen: React.FC = () => {
   const { 
@@ -16,11 +16,11 @@ const WaitingScreen: React.FC = () => {
   };
 
   const getStatusText = () => {
-    if (connectionStatus === 'connecting') {
+    if (connectionStatus === ConnectionStatus.CONNECTING) {
       return 'Connecting to server...';
     }
     
-    if (connectionStatus === 'waiting') {
+    if (connectionStatus === ConnectionStatus.WAITING_FOR_PARTNER) {
       if (queuePosition !== null && queuePosition > 0) {
         return `Waiting for a chat partner... Position ${queuePosition} in queue`;
       }
@@ -31,7 +31,7 @@ const WaitingScreen: React.FC = () => {
   };
 
   const getStatusIcon = () => {
-    if (connectionStatus === 'connecting') {
+    if (connectionStatus === ConnectionStatus.CONNECTING) {
       return (
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
       );

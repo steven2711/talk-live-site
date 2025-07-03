@@ -5,15 +5,17 @@ import cors from 'cors'
 import helmet from 'helmet'
 import rateLimit from 'express-rate-limit'
 
-import { setupSocketHandlers } from './services/socketService.js'
-import { ChatManager } from './services/chatManager.js'
-import { logger } from './utils/logger.js'
+import { setupSocketHandlers } from './services/socketService'
+import { setupVoiceRoomSocketHandlers, getVoiceRoomStats } from './services/voiceRoomSocketService'
+import { ChatManager } from './services/chatManager'
+import { GlobalVoiceRoomManager } from './services/globalVoiceRoomManager'
+import { logger } from './utils/logger'
 import type { 
   ServerToClientEvents, 
   ClientToServerEvents, 
   InterServerEvents, 
   SocketData 
-} from './types/index.js'
+} from './types/index'
 
 // Environment configuration
 const PORT = process.env.PORT || 3001
@@ -46,6 +48,9 @@ const io = new Server<
 // Create chat manager instance
 const chatManager = new ChatManager()
 
+// Create global voice room manager instance
+const voiceRoomManager = new GlobalVoiceRoomManager(2) // Max 2 speakers
+
 // Middleware setup
 app.use(helmet({
   contentSecurityPolicy: NODE_ENV === 'production' ? undefined : false,
@@ -75,23 +80,42 @@ app.use('/api', limiter)
 
 // Health check endpoint
 app.get('/health', (_req, res) => {
-  const stats = chatManager.getStats()
+  const chatStats = chatManager.getStats()
+  const voiceRoomStats = getVoiceRoomStats(voiceRoomManager)
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    stats
+    stats: {
+      chat: chatStats,
+      voiceRoom: voiceRoomStats
+    }
   })
 })
 
 // API endpoint for chat statistics
 app.get('/api/stats', (_req, res) => {
-  const stats = chatManager.getStats()
-  res.json(stats)
+  const chatStats = chatManager.getStats()
+  const voiceRoomStats = getVoiceRoomStats(voiceRoomManager)
+  res.json({
+    chat: chatStats,
+    voiceRoom: voiceRoomStats
+  })
+})
+
+// API endpoint for voice room state
+app.get('/api/voice-room', (_req, res) => {
+  const roomState = voiceRoomManager.getRoomState()
+  const stats = getVoiceRoomStats(voiceRoomManager)
+  res.json({
+    room: roomState,
+    stats
+  })
 })
 
 // Setup Socket.IO event handlers
 setupSocketHandlers(io, chatManager)
+setupVoiceRoomSocketHandlers(io, voiceRoomManager)
 
 // Error handling middleware
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

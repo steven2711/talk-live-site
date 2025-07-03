@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { FiSend, FiUser, FiX, FiWifi, FiWifiOff } from 'react-icons/fi';
+import { FiSend, FiUser, FiX } from 'react-icons/fi';
 import { useChatStore } from '../store/chatStore';
 import { cn, debounce } from '../utils';
 import MessageList from './MessageList';
 import TypingIndicator from './TypingIndicator';
-import ConnectionStatus from './ConnectionStatus';
+import ConnectionStatusComponent from './ConnectionStatus';
+import { ConnectionStatus } from '../types';
 
 const ChatInterface: React.FC = () => {
   const {
@@ -98,7 +99,7 @@ const ChatInterface: React.FC = () => {
   }, [messages, typingIndicators]);
 
   // Show waiting message if connected but no partner
-  if (connectionStatus === 'connected' && !partner) {
+  if (connectionStatus === ConnectionStatus.CONNECTED && !partner) {
     return (
       <div className="max-w-4xl mx-auto">
         <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
@@ -143,7 +144,7 @@ const ChatInterface: React.FC = () => {
                   {partner.username}
                 </h2>
                 <div className="flex items-center space-x-2">
-                  <ConnectionStatus status={connectionStatus} />
+                  <ConnectionStatusComponent status={connectionStatus} />
                   {typingIndicators.length > 0 && (
                     <span className="text-xs text-gray-500">
                       typing...
@@ -189,16 +190,16 @@ const ChatInterface: React.FC = () => {
                 placeholder="Type your message..."
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none min-h-[48px] max-h-32"
                 rows={1}
-                disabled={connectionStatus !== 'paired'}
+                disabled={connectionStatus !== ConnectionStatus.IN_CHAT}
               />
             </div>
             
             <button
               onClick={handleSendMessage}
-              disabled={!messageInput.trim() || connectionStatus !== 'paired'}
+              disabled={!messageInput.trim() || connectionStatus !== ConnectionStatus.IN_CHAT}
               className={cn(
                 'p-3 rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                messageInput.trim() && connectionStatus === 'paired'
+                messageInput.trim() && connectionStatus === ConnectionStatus.IN_CHAT
                   ? 'bg-primary-600 hover:bg-primary-700 text-white shadow-lg hover:shadow-xl transform hover:-translate-y-0.5'
                   : 'bg-gray-300 text-gray-500 cursor-not-allowed'
               )}

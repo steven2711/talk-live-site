@@ -16,35 +16,35 @@ const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
 }) => {
   const getStatusConfig = () => {
     switch (status) {
-      case 'connected':
+      case ConnectionStatusType.CONNECTED:
         return {
           icon: FiWifi,
           text: 'Connected',
           className: 'status-connected',
           iconColor: 'text-green-600'
         };
-      case 'paired':
+      case ConnectionStatusType.IN_CHAT:
         return {
           icon: FiCheck,
           text: 'Paired',
           className: 'status-connected',
           iconColor: 'text-green-600'
         };
-      case 'connecting':
+      case ConnectionStatusType.CONNECTING:
         return {
           icon: FiClock,
           text: 'Connecting',
           className: 'status-connecting',
           iconColor: 'text-yellow-600'
         };
-      case 'waiting':
+      case ConnectionStatusType.WAITING_FOR_PARTNER:
         return {
           icon: FiUsers,
           text: 'Waiting',
           className: 'status-waiting',
           iconColor: 'text-blue-600'
         };
-      case 'disconnected':
+      case ConnectionStatusType.DISCONNECTED:
       default:
         return {
           icon: FiWifiOff,

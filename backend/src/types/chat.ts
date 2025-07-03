@@ -48,6 +48,64 @@ export interface QueueUser {
   waitingSince: Date
 }
 
+// Global Voice Room Types
+export enum VoiceRoomRole {
+  LISTENER = 'listener',
+  SPEAKER = 'speaker',
+  QUEUE = 'queue'
+}
+
+export type UserRole = VoiceRoomRole;
+
+export interface VoiceRoomUser {
+  user: User
+  role: VoiceRoomRole
+  queuePosition?: number
+  joinedAt: Date
+  isMuted: boolean
+  audioLevel: number
+  volume: number
+}
+
+export interface GlobalVoiceRoom {
+  id: string
+  name: string
+  isActive: boolean
+  speakers: VoiceRoomUser[]
+  listeners: VoiceRoomUser[]
+  queue: VoiceRoomUser[]
+  createdAt: Date
+  lastActivity: Date
+  maxSpeakers: number
+}
+
+export interface VoiceRoomState {
+  roomId: string | null
+  speakers: VoiceRoomUser[]
+  listeners: VoiceRoomUser[]
+  totalUsers: number
+  maxSpeakers: number
+  isRecording: boolean
+  roomStartTime: Date | null
+}
+
+export interface AudioLevelUpdate {
+  userId: string
+  audioLevel: number
+  timestamp: Date
+}
+
+export interface VoiceRoomBroadcastMessage {
+  type: string
+  data: any
+  roomId: string
+  fromUserId: string
+  toUserId?: string
+}
+
+
+
+
 // Socket.io Event Types
 export interface ServerToClientEvents {
   // Connection events
@@ -59,6 +117,16 @@ export interface ServerToClientEvents {
   // Message events
   message_received: (message: Message) => void
   typing_indicator: (isTyping: boolean, username: string) => void
+  
+  // Voice room events
+  voice_room_joined: (roomState: VoiceRoomState) => void
+  voice_room_updated: (roomState: VoiceRoomState) => void
+  speaker_changed: (newSpeakers: VoiceRoomUser[]) => void
+  audio_level_update: (update: AudioLevelUpdate) => void
+  user_role_changed: (userId: string, newRole: UserRole) => void
+  queue_updated: (listeners: VoiceRoomUser[]) => void
+  speaker_volume_changed: (userId: string, volume: number) => void
+  voice_room_broadcast_signal: (message: VoiceRoomBroadcastMessage) => void
   
   // System events
   error: (error: string) => void
@@ -74,6 +142,15 @@ export interface ClientToServerEvents {
   send_message: (content: string) => void
   typing_start: () => void
   typing_stop: () => void
+  
+  // Voice room events
+  join_voice_room: (username: string) => void
+  leave_voice_room: () => void
+  request_speaker_role: () => void
+  set_speaker_volume: (volume: number) => void
+  mute_speaker: (muted: boolean) => void
+  send_audio_level: (level: number) => void
+  voice_room_broadcast_signal: (message: VoiceRoomBroadcastMessage) => void
   
   // Heartbeat
   ping: () => void

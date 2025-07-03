@@ -1,0 +1,13 @@
+{
+  "objective": "this needs app needs to allow two people to speak to each other once connected instead of text chat. implement this feature along will all tests. ensure the tests pass and the app works before finishing",
+  "strategy": "auto",
+  "mode": "centralized",
+  "maxAgents": 5,
+  "timeout": 60,
+  "parallel": false,
+  "monitor": false,
+  "output": "json",
+  "outputDir": "./reports",
+  "timestamp": "2025-07-02T22:56:06.083Z",
+  "id": "swarm-auto-centralized-1751496966083"
+}

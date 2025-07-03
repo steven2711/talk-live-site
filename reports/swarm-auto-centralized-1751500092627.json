@@ -1,0 +1,13 @@
+{
+  "objective": "when i run npm run dev to test the website comes up. i input my user name and hit enter, nothing happens. i check console logs and see chatStore.ts:49 WebSocket connection to 'ws://localhost:3002/socket.io/?EIO=4&transport=websocket' failed: \n\nchatStore.ts:206 Voice room connection error: TransportError: websocket error\n    at WS.onError (socket__io-client.js?v=d72bca06:495:33)\n    at ws.onerror (socket__io-client.js?v=d72bca06:1010:35)",
+  "strategy": "auto",
+  "mode": "centralized",
+  "maxAgents": 5,
+  "timeout": 60,
+  "parallel": false,
+  "monitor": false,
+  "output": "json",
+  "outputDir": "./reports",
+  "timestamp": "2025-07-02T23:48:12.627Z",
+  "id": "swarm-auto-centralized-1751500092627"
+}

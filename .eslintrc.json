@@ -4,7 +4,7 @@
   "extends": [
     "eslint:recommended",
     "@typescript-eslint/recommended",
-    "prettier"
+    "eslint-config-prettier"
   ],
   "ignorePatterns": ["dist", ".eslintrc.cjs", "node_modules"],
   "parser": "@typescript-eslint/parser",

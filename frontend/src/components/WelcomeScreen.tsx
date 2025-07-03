@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { FiMessageCircle, FiUsers, FiShield, FiZap } from 'react-icons/fi';
+import { FiMic, FiUsers, FiShield, FiZap, FiHeadphones } from 'react-icons/fi';
 import { useChatStore } from '../store/chatStore';
 import { validateUsername } from '../utils';
 import { cn } from '../utils';
@@ -10,7 +10,7 @@ interface FormData {
 }
 
 const WelcomeScreen: React.FC = () => {
-  const { connect } = useChatStore();
+  const { connectToVoiceRoom } = useChatStore();
   const [isConnecting, setIsConnecting] = useState(false);
   
   const {
@@ -33,7 +33,7 @@ const WelcomeScreen: React.FC = () => {
 
     setIsConnecting(true);
     try {
-      connect(data.username.trim());
+      connectToVoiceRoom(data.username.trim());
     } catch (error) {
       console.error('Connection error:', error);
       setIsConnecting(false);
@@ -47,8 +47,8 @@ const WelcomeScreen: React.FC = () => {
   const features = [
     {
       icon: FiZap,
-      title: 'Instant Connection',
-      description: 'Connect with someone new in seconds'
+      title: 'Instant Voice Rooms',
+      description: 'Join live voice conversations in seconds'
     },
     {
       icon: FiShield,
@@ -56,14 +56,14 @@ const WelcomeScreen: React.FC = () => {
       description: 'No registration, no tracking, no data stored'
     },
     {
-      icon: FiUsers,
-      title: 'One-on-One Chat',
-      description: 'Private conversations with auto-pairing'
+      icon: FiMic,
+      title: '2 Speakers at a Time',
+      description: 'Take turns speaking with volume controls'
     },
     {
-      icon: FiMessageCircle,
-      title: 'Real-time Messaging',
-      description: 'Instant messages with typing indicators'
+      icon: FiHeadphones,
+      title: 'Unlimited Listeners',
+      description: 'Listen and queue up to speak next'
     }
   ];
 
@@ -73,13 +73,13 @@ const WelcomeScreen: React.FC = () => {
       <div className="bg-white rounded-2xl shadow-xl p-8 mb-8">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-primary-100 rounded-full mb-4">
-            <FiMessageCircle className="w-8 h-8 text-primary-600" />
+            <FiMic className="w-8 h-8 text-primary-600" />
           </div>
           <h2 className="text-2xl font-bold text-gray-800 mb-2">
-            Start Chatting Now
+            Join Voice Room
           </h2>
           <p className="text-gray-600">
-            Enter a username to get connected with someone new
+            Enter a username to join live voice conversations
           </p>
         </div>
 
@@ -138,14 +138,14 @@ const WelcomeScreen: React.FC = () => {
                 Connecting...
               </div>
             ) : (
-              'Start Chatting'
+              'Join Voice Room'
             )}
           </button>
         </form>
 
         <div className="mt-6 text-center text-sm text-gray-500">
           <p>
-            By continuing, you agree to keep conversations respectful and appropriate.
+            By continuing, you agree to keep voice conversations respectful and appropriate.
           </p>
         </div>
       </div>

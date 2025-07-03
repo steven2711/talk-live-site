@@ -1,5 +1,5 @@
 import React from 'react';
-import { Message } from '../types';
+import { Message, MessageType } from '../types';
 import { formatTime, cn } from '../utils';
 import { FiInfo } from 'react-icons/fi';
 
@@ -25,8 +25,8 @@ const MessageList: React.FC<MessageListProps> = ({ messages, currentUserId }) =>
   return (
     <div className="space-y-4">
       {messages.map((message) => {
-        const isCurrentUser = message.sender !== 'system' && message.id.startsWith(currentUserId);
-        const isSystem = message.type === 'system';
+        const isCurrentUser = message.senderId !== 'system' && message.senderId === currentUserId;
+        const isSystem = message.type === MessageType.SYSTEM;
 
         if (isSystem) {
           return (
@@ -53,7 +53,7 @@ const MessageList: React.FC<MessageListProps> = ({ messages, currentUserId }) =>
               {/* Sender name (only for other users) */}
               {!isCurrentUser && (
                 <div className="text-xs text-gray-500 mb-1 px-1">
-                  {message.sender}
+                  {message.senderUsername}
                 </div>
               )}
               
@@ -73,7 +73,7 @@ const MessageList: React.FC<MessageListProps> = ({ messages, currentUserId }) =>
                   'text-xs mt-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200',
                   isCurrentUser ? 'text-primary-200' : 'text-gray-500'
                 )}>
-                  {formatTime(message.timestamp)}
+                  {formatTime(message.timestamp.getTime())}
                 </div>
               </div>
             </div>
