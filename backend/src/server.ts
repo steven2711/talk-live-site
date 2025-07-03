@@ -6,15 +6,18 @@ import helmet from 'helmet'
 import rateLimit from 'express-rate-limit'
 
 import { setupSocketHandlers } from './services/socketService'
-import { setupVoiceRoomSocketHandlers, getVoiceRoomStats } from './services/voiceRoomSocketService'
+import {
+  setupVoiceRoomSocketHandlers,
+  getVoiceRoomStats,
+} from './services/voiceRoomSocketService'
 import { ChatManager } from './services/chatManager'
 import { GlobalVoiceRoomManager } from './services/globalVoiceRoomManager'
 import { logger } from './utils/logger'
-import type { 
-  ServerToClientEvents, 
-  ClientToServerEvents, 
-  InterServerEvents, 
-  SocketData 
+import type {
+  ServerToClientEvents,
+  ClientToServerEvents,
+  InterServerEvents,
+  SocketData,
 } from './types/index'
 
 // Environment configuration
@@ -34,11 +37,12 @@ const io = new Server<
   SocketData
 >(server, {
   cors: {
-    origin: NODE_ENV === 'production' 
-      ? [process.env.FRONTEND_URL || 'http://localhost:3000']
-      : [FRONTEND_URL, 'http://localhost:3000', 'http://127.0.0.1:3000'],
+    origin:
+      NODE_ENV === 'production'
+        ? [process.env.FRONTEND_URL || 'http://localhost:3000']
+        : [FRONTEND_URL, 'http://localhost:3000', 'http://127.0.0.1:3000'],
     methods: ['GET', 'POST'],
-    credentials: true
+    credentials: true,
   },
   transports: ['websocket', 'polling'],
   pingTimeout: 60000,
@@ -52,17 +56,22 @@ const chatManager = new ChatManager()
 const voiceRoomManager = new GlobalVoiceRoomManager(2) // Max 2 speakers
 
 // Middleware setup
-app.use(helmet({
-  contentSecurityPolicy: NODE_ENV === 'production' ? undefined : false,
-  crossOriginEmbedderPolicy: false
-}))
+app.use(
+  helmet({
+    contentSecurityPolicy: NODE_ENV === 'production' ? undefined : false,
+    crossOriginEmbedderPolicy: false,
+  })
+)
 
-app.use(cors({
-  origin: NODE_ENV === 'production' 
-    ? [process.env.FRONTEND_URL || 'http://localhost:3000']
-    : [FRONTEND_URL, 'http://localhost:3000', 'http://127.0.0.1:3000'],
-  credentials: true
-}))
+app.use(
+  cors({
+    origin:
+      NODE_ENV === 'production'
+        ? [process.env.FRONTEND_URL || 'http://localhost:3000']
+        : [FRONTEND_URL, 'http://localhost:3000', 'http://127.0.0.1:3000'],
+    credentials: true,
+  })
+)
 
 app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true }))
@@ -80,16 +89,12 @@ app.use('/api', limiter)
 
 // Health check endpoint
 app.get('/health', (_req, res) => {
-  const chatStats = chatManager.getStats()
-  const voiceRoomStats = getVoiceRoomStats(voiceRoomManager)
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    stats: {
-      chat: chatStats,
-      voiceRoom: voiceRoomStats
-    }
+    port: PORT,
+    environment: NODE_ENV,
   })
 })
 
@@ -99,7 +104,7 @@ app.get('/api/stats', (_req, res) => {
   const voiceRoomStats = getVoiceRoomStats(voiceRoomManager)
   res.json({
     chat: chatStats,
-    voiceRoom: voiceRoomStats
+    voiceRoom: voiceRoomStats,
   })
 })
 
@@ -109,7 +114,7 @@ app.get('/api/voice-room', (_req, res) => {
   const stats = getVoiceRoomStats(voiceRoomManager)
   res.json({
     room: roomState,
-    stats
+    stats,
   })
 })
 
@@ -118,10 +123,17 @@ setupSocketHandlers(io, chatManager)
 setupVoiceRoomSocketHandlers(io, voiceRoomManager)
 
 // Error handling middleware
-app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  logger.error('Express error:', err)
-  res.status(500).json({ error: 'Internal server error' })
-})
+app.use(
+  (
+    err: Error,
+    _req: express.Request,
+    res: express.Response,
+    _next: express.NextFunction
+  ) => {
+    logger.error('Express error:', err)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+)
 
 // Handle 404
 app.use('*', (_req, res) => {
