@@ -64,7 +64,7 @@ export class MockMediaStreamTrack implements MediaStreamTrack {
   onmute: ((this: MediaStreamTrack, ev: Event) => any) | null = null;
   onunmute: ((this: MediaStreamTrack, ev: Event) => any) | null = null;
 
-  applyConstraints(constraints?: MediaTrackConstraints): Promise<void> {
+  applyConstraints(_constraints?: MediaTrackConstraints): Promise<void> {
     return Promise.resolve();
   }
 
@@ -97,7 +97,7 @@ export class MockMediaStreamTrack implements MediaStreamTrack {
 }
 
 // Mock RTCPeerConnection
-export class MockRTCPeerConnection implements RTCPeerConnection {
+export class MockRTCPeerConnection {
   canTrickleIceCandidates: boolean | null = true;
   connectionState: RTCPeerConnectionState = 'new';
   currentLocalDescription: RTCSessionDescription | null = null;
@@ -119,17 +119,17 @@ export class MockRTCPeerConnection implements RTCPeerConnection {
   signalingState: RTCSignalingState = 'stable';
   sctp: RTCSctpTransport | null = null;
 
-  constructor(config?: RTCConfiguration) {}
+  constructor(_config?: RTCConfiguration) {}
 
-  addIceCandidate(candidate?: RTCIceCandidateInit): Promise<void> {
+  addIceCandidate(_candidate?: RTCIceCandidateInit | null): Promise<void> {
     return Promise.resolve();
   }
 
-  addTrack(track: MediaStreamTrack, ...streams: MediaStream[]): RTCRtpSender {
+  addTrack(_track: MediaStreamTrack, ..._streams: MediaStream[]): RTCRtpSender {
     return {} as RTCRtpSender;
   }
 
-  addTransceiver(trackOrKind: MediaStreamTrack | string, init?: RTCRtpTransceiverInit): RTCRtpTransceiver {
+  addTransceiver(_trackOrKind: MediaStreamTrack | string, _init?: RTCRtpTransceiverInit): RTCRtpTransceiver {
     return {} as RTCRtpTransceiver;
   }
 
@@ -139,20 +139,20 @@ export class MockRTCPeerConnection implements RTCPeerConnection {
     this.signalingState = 'closed';
   }
 
-  createAnswer(options?: RTCAnswerOptions): Promise<RTCSessionDescriptionInit> {
+  createAnswer(..._args: any[]): Promise<RTCSessionDescriptionInit> {
     return Promise.resolve({
-      type: 'answer',
+      type: 'answer' as RTCSdpType,
       sdp: 'mock-sdp-answer'
     });
   }
 
-  createDataChannel(label: string, dataChannelDict?: RTCDataChannelInit): RTCDataChannel {
+  createDataChannel(_label: string, _dataChannelDict?: RTCDataChannelInit): RTCDataChannel {
     return {} as RTCDataChannel;
   }
 
-  createOffer(options?: RTCOfferOptions): Promise<RTCSessionDescriptionInit> {
+  createOffer(..._args: any[]): Promise<RTCSessionDescriptionInit> {
     return Promise.resolve({
-      type: 'offer',
+      type: 'offer' as RTCSdpType,
       sdp: 'mock-sdp-offer'
     });
   }
@@ -169,7 +169,7 @@ export class MockRTCPeerConnection implements RTCPeerConnection {
     return [];
   }
 
-  getStats(selector?: MediaStreamTrack | null): Promise<RTCStatsReport> {
+  getStats(_selector?: MediaStreamTrack | null): Promise<RTCStatsReport> {
     return Promise.resolve(new Map() as RTCStatsReport);
   }
 
@@ -177,13 +177,13 @@ export class MockRTCPeerConnection implements RTCPeerConnection {
     return [];
   }
 
-  removeTrack(sender: RTCRtpSender): void {}
+  removeTrack(_sender: RTCRtpSender): void {}
 
   restartIce(): void {}
 
-  setConfiguration(configuration?: RTCConfiguration): void {}
+  setConfiguration(_configuration?: RTCConfiguration): void {}
 
-  setLocalDescription(description?: RTCSessionDescriptionInit): Promise<void> {
+  setLocalDescription(description?: RTCSessionDescriptionInit | RTCLocalSessionDescriptionInit): Promise<void> {
     this.localDescription = description as RTCSessionDescription;
     return Promise.resolve();
   }
@@ -231,12 +231,16 @@ export class MockAudioContext implements AudioContext {
   state: AudioContextState = 'suspended';
   onstatechange: ((this: BaseAudioContext, ev: Event) => any) | null = null;
 
+  getOutputTimestamp(): AudioTimestamp {
+    return { contextTime: this.currentTime, performanceTime: performance.now() };
+  }
+
   close(): Promise<void> {
     this.state = 'closed';
     return Promise.resolve();
   }
 
-  createMediaStreamSource(mediaStream: MediaStream): MediaStreamAudioSourceNode {
+  createMediaStreamSource(_mediaStream: MediaStream): MediaStreamAudioSourceNode {
     return {} as MediaStreamAudioSourceNode;
   }
 
@@ -294,7 +298,6 @@ export class MockAudioContext implements AudioContext {
   createConstantSource(): ConstantSourceNode { return {} as ConstantSourceNode; }
   createConvolver(): ConvolverNode { return {} as ConvolverNode; }
   createDelay(): DelayNode { return {} as DelayNode; }
-  createDynamicsCompressor(): DynamicsCompressorNode { return {} as DynamicsCompressorNode; }
   createIIRFilter(): IIRFilterNode { return {} as IIRFilterNode; }
   createOscillator(): OscillatorNode { return {} as OscillatorNode; }
   createPanner(): PannerNode { return {} as PannerNode; }
@@ -305,7 +308,6 @@ export class MockAudioContext implements AudioContext {
   createBiquadFilter(): BiquadFilterNode { return {} as BiquadFilterNode; }
   decodeAudioData(): Promise<AudioBuffer> { return Promise.resolve({} as AudioBuffer); }
   createMediaElementSource(): MediaElementAudioSourceNode { return {} as MediaElementAudioSourceNode; }
-  createMediaStreamDestination(): MediaStreamAudioDestinationNode { return {} as MediaStreamAudioDestinationNode; }
 
   addEventListener(): void {}
   removeEventListener(): void {}

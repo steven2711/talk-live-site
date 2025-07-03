@@ -33,15 +33,15 @@ export interface RoomState {
   currentUserRole: 'speaker' | 'listener' | 'queue';
 }
 
-export interface BroadcastingEvents {
-  ROLE_CHANGED: 'role_changed';
-  SPEAKER_ADDED: 'speaker_added';
-  SPEAKER_REMOVED: 'speaker_removed';
-  LISTENER_JOINED: 'listener_joined';
-  LISTENER_LEFT: 'listener_left';
-  AUDIO_LEVEL_UPDATE: 'audio_level_update';
-  CONNECTION_STATE_CHANGED: 'connection_state_changed';
-  ERROR: 'error';
+export enum BroadcastingEvents {
+  ROLE_CHANGED = 'role_changed',
+  SPEAKER_ADDED = 'speaker_added',
+  SPEAKER_REMOVED = 'speaker_removed',
+  LISTENER_JOINED = 'listener_joined',
+  LISTENER_LEFT = 'listener_left',
+  AUDIO_LEVEL_UPDATE = 'audio_level_update',
+  CONNECTION_STATE_CHANGED = 'connection_state_changed',
+  ERROR = 'error'
 }
 
 export enum ConnectionState {
@@ -55,9 +55,9 @@ export enum ConnectionState {
 
 export class BroadcastingService {
   private socket: Socket;
-  private broadcastManager: VoiceBroadcastManager;
-  private audioManager: AudioStreamManager;
-  private transitionManager: VoiceTransitionManager;
+  private broadcastManager!: VoiceBroadcastManager;
+  private audioManager!: AudioStreamManager;
+  private transitionManager!: VoiceTransitionManager;
   private config: BroadcastingConfig;
   private roomState: RoomState;
   private connectionState: ConnectionState = ConnectionState.DISCONNECTED;
@@ -163,11 +163,11 @@ export class BroadcastingService {
   }
 
   private setupTransitionHandlers(): void {
-    this.transitionManager.on(TransitionEvents.TRANSITION_START, (data) => {
+    this.transitionManager.on(TransitionEvents.TRANSITION_START, (data: any) => {
       console.log('Transition started:', data);
     });
 
-    this.transitionManager.on(TransitionEvents.TRANSITION_COMPLETE, (data) => {
+    this.transitionManager.on(TransitionEvents.TRANSITION_COMPLETE, (data: any) => {
       console.log('Transition completed:', data);
       this.emit(BroadcastingEvents.ROLE_CHANGED, {
         newRole: this.roomState.currentUserRole,
@@ -175,7 +175,7 @@ export class BroadcastingService {
       });
     });
 
-    this.transitionManager.on(TransitionEvents.TRANSITION_ERROR, (data) => {
+    this.transitionManager.on(TransitionEvents.TRANSITION_ERROR, (data: any) => {
       console.error('Transition error:', data);
       this.handleError(new Error(data.error));
     });

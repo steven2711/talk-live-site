@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FiMic, FiMicOff, FiPhone, FiPhoneOff, FiVolume2, FiVolumeX, FiUser } from 'react-icons/fi';
+import { FiMic, FiMicOff, FiPhoneOff, FiVolume2, FiVolumeX, FiUser } from 'react-icons/fi';
 import { cn } from '../utils';
 
 interface ActiveCallInterfaceProps {

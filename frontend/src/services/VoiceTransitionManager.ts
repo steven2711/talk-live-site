@@ -24,7 +24,6 @@ export enum TransitionEvents {
 }
 
 export class VoiceTransitionManager {
-  private broadcastManager: VoiceBroadcastManager;
   private audioManager: AudioStreamManager;
   private config: TransitionConfig;
   private state: TransitionState;
@@ -33,11 +32,10 @@ export class VoiceTransitionManager {
   private eventListeners: Map<TransitionEvents, Function[]> = new Map();
 
   constructor(
-    broadcastManager: VoiceBroadcastManager,
+    _broadcastManager: VoiceBroadcastManager,
     audioManager: AudioStreamManager,
     config: Partial<TransitionConfig> = {}
   ) {
-    this.broadcastManager = broadcastManager;
     this.audioManager = audioManager;
     
     this.config = {
@@ -224,7 +222,7 @@ export class VoiceTransitionManager {
     await this.fadeInSpeaker(newSpeakerId, emergencyConfig.fadeInDuration);
   }
 
-  private async setupSpeakerConnection(speakerId: string, listenerIds: string[]): Promise<void> {
+  private async setupSpeakerConnection(speakerId: string, _listenerIds: string[]): Promise<void> {
     // This would typically involve WebRTC connection setup
     // For now, we'll simulate the connection establishment
     await new Promise(resolve => setTimeout(resolve, this.config.bufferTime));

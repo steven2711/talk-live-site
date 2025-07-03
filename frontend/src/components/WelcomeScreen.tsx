@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { FiMic, FiUsers, FiShield, FiZap, FiHeadphones } from 'react-icons/fi';
+import { FiMic, FiShield, FiZap, FiHeadphones } from 'react-icons/fi';
 import { useChatStore } from '../store/chatStore';
 import { validateUsername } from '../utils';
 import { cn } from '../utils';

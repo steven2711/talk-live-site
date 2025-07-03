@@ -22,10 +22,15 @@ const SOCKET_URL =
 // Utility function to check server connectivity
 const checkServerConnectivity = async (url: string): Promise<boolean> => {
   try {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 5000)
+    
     const response = await fetch(`${url}/health-check`, {
       method: 'GET',
-      timeout: 5000 as any, // Type assertion for fetch timeout
+      signal: controller.signal
     })
+    
+    clearTimeout(timeoutId)
     return response.ok
   } catch (error) {
     console.warn('Server connectivity check failed:', error)
@@ -105,7 +110,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
             const voiceRoomManager = new GlobalVoiceRoomManager(socket)
 
             // Initialize with temporary user (will be updated when backend sends real user ID)
-            await voiceRoomManager.initialize({ id: socket.id, username })
+            await voiceRoomManager.initialize({ id: socket.id || 'temp-id', username })
 
             set({
               socket,

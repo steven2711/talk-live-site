@@ -1,4 +1,3 @@
-import { VoiceCallStatus, WebRTCSignalingMessage } from '../types/chat';
 
 export interface BroadcastPeer {
   id: string;
@@ -216,7 +215,7 @@ export class VoiceBroadcastManager {
   /**
    * Handle speaker promotion - transition from listener to speaker
    */
-  async promoteSpeaker(newSpeakerId: string, listenerIds: string[]): Promise<void> {
+  async promoteSpeaker(_newSpeakerId: string, listenerIds: string[]): Promise<void> {
     try {
       console.log('Being promoted to speaker');
       

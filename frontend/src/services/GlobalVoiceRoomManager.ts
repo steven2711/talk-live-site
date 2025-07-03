@@ -121,7 +121,7 @@ export class GlobalVoiceRoomManager {
       this.socket.emit('join_voice_room', this.currentUser.username)
     } catch (error) {
       console.error('Failed to join voice room:', error)
-      this.emit('error', `Failed to join voice room: ${error.message}`)
+      this.emit('error', `Failed to join voice room: ${error instanceof Error ? error.message : String(error)}`)
       throw error
     }
   }
@@ -211,7 +211,7 @@ export class GlobalVoiceRoomManager {
       console.log('✅ Started speaking successfully')
     } catch (error) {
       console.error('❌ Failed to start speaking:', error)
-      this.emit('error', `Failed to start speaking: ${error.message}`)
+      this.emit('error', `Failed to start speaking: ${error instanceof Error ? error.message : String(error)}`)
       throw error
     }
   }
@@ -268,7 +268,7 @@ export class GlobalVoiceRoomManager {
       }
     } catch (error) {
       console.error('Failed to start listening:', error)
-      this.emit('error', `Failed to start listening: ${error.message}`)
+      this.emit('error', `Failed to start listening: ${error instanceof Error ? error.message : String(error)}`)
       throw error
     }
   }
@@ -494,7 +494,7 @@ export class GlobalVoiceRoomManager {
       }
     } catch (error) {
       console.error('❌ Error handling role change:', error)
-      this.emit('error', `Failed to handle role change: ${error.message}`)
+      this.emit('error', `Failed to handle role change: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
