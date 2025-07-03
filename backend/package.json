@@ -8,12 +8,12 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
+    "postinstall": "npm run build",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
-    "test:watch": "vitest --watch",
-    "postinstall": "npm run build"
+    "test:watch": "vitest --watch"
   },
   "dependencies": {
     "express": "^4.18.2",

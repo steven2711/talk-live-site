@@ -18,7 +18,7 @@ import type {
   ClientToServerEvents,
   InterServerEvents,
   SocketData,
-} from './types/index'
+} from './types/index.js'
 
 // Environment configuration
 const PORT = process.env.PORT || 3001
