@@ -15,7 +15,7 @@ import {
 import { GlobalVoiceRoomManager } from '../services/GlobalVoiceRoomManager'
 
 const SOCKET_URL =
-  import.meta.env?.VITE_PROD || import.meta.env?.PROD
+  import.meta.env.PROD
     ? window.location.origin
     : import.meta.env.VITE_API_URL || 'http://localhost:3000'
 
