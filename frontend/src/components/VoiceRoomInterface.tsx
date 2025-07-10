@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FiMic, FiUsers, FiX } from 'react-icons/fi';
+import { FiMic, FiUsers, FiX, FiVolume2 } from 'react-icons/fi';
 import { useChatStore } from '../store/chatStore';
 import { ConnectionStatus, VoiceRoomRole, VoiceRoomState } from '../types';
 import SpeakerSection from './SpeakerSection';
@@ -15,8 +15,11 @@ const VoiceRoomInterface: React.FC = () => {
     disconnect,
     requestSpeakerRole,
     setSpeakerVolume,
-    muteSpeaker
+    muteSpeaker,
+    voiceRoomManager
   } = useChatStore();
+  
+  const [audioEnabled, setAudioEnabled] = useState(false);
 
   // For demo purposes, create mock voice room state if backend isn't available
   const [mockVoiceRoomState] = useState<VoiceRoomState>(() => ({
@@ -119,6 +122,21 @@ const VoiceRoomInterface: React.FC = () => {
   // Handle request to speak
   const handleRequestToSpeak = () => {
     requestSpeakerRole();
+  };
+  
+  // Handle enable audio
+  const handleEnableAudio = async () => {
+    try {
+      if (voiceRoomManager && typeof voiceRoomManager.resumeAudioPlayback === 'function') {
+        await voiceRoomManager.resumeAudioPlayback();
+        setAudioEnabled(true);
+        console.log('Audio enabled successfully');
+      } else {
+        console.warn('Voice room manager not available or method not found');
+      }
+    } catch (error) {
+      console.error('Failed to enable audio:', error);
+    }
   };
 
   // Check if current user is a speaker
@@ -253,6 +271,25 @@ const VoiceRoomInterface: React.FC = () => {
             />
           </div>
 
+          {/* Audio Enable Button */}
+          {!audioEnabled && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-center">
+              <div className="flex items-center justify-center space-x-2 mb-2">
+                <FiVolume2 className="w-5 h-5 text-yellow-600" />
+                <span className="text-yellow-800 font-medium">Enable Audio</span>
+              </div>
+              <p className="text-sm text-yellow-700 mb-3">
+                Click to enable audio and hear other participants
+              </p>
+              <button
+                onClick={handleEnableAudio}
+                className="bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 transition-colors"
+              >
+                Enable Audio
+              </button>
+            </div>
+          )}
+          
           {/* Room Info */}
           <div className="flex items-center justify-center space-x-6 text-sm text-gray-500">
             <div className="flex items-center space-x-2">
@@ -267,6 +304,12 @@ const VoiceRoomInterface: React.FC = () => {
             <div>
               Max {effectiveVoiceRoomState.maxSpeakers} speakers at a time
             </div>
+            {audioEnabled && (
+              <div className="flex items-center space-x-2">
+                <FiVolume2 className="w-3 h-3 text-green-500" />
+                <span className="text-green-600">Audio enabled</span>
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -191,6 +191,9 @@ export class BroadcastingService {
       // Initialize audio manager
       await this.audioManager.initialize();
       
+      // Setup user interaction handler for audio
+      this.setupUserInteractionHandler();
+      
       // Join the voice room
       this.socket.emit('join_voice_room', username);
       
@@ -287,6 +290,62 @@ export class BroadcastingService {
       this.handleError(error as Error);
       throw error;
     }
+  }
+
+  /**
+   * Resume audio contexts and start playback (for user interaction)
+   */
+  async resumeAudioPlayback(): Promise<void> {
+    try {
+      console.log('Resuming audio playback after user interaction');
+      
+      // Resume audio manager
+      await this.audioManager.resume();
+      
+      // Force start audio playback
+      await this.audioManager.forceStartAudioPlayback();
+      
+      // Force start broadcast manager audio playback
+      if (this.broadcastManager && typeof this.broadcastManager.forceStartAudioPlayback === 'function') {
+        await this.broadcastManager.forceStartAudioPlayback();
+      }
+      
+      console.log('Audio playback resumed successfully');
+    } catch (error) {
+      console.error('Failed to resume audio playback:', error);
+      this.handleError(error as Error);
+    }
+  }
+
+  /**
+   * Setup user interaction handler for audio context resume
+   */
+  private setupUserInteractionHandler(): void {
+    let interactionHandled = false;
+    
+    const handleUserInteraction = async () => {
+      if (interactionHandled) return;
+      interactionHandled = true;
+      
+      try {
+        console.log('User interaction detected, resuming audio');
+        await this.resumeAudioPlayback();
+      } catch (error) {
+        console.error('Failed to handle user interaction:', error);
+      }
+      
+      // Remove event listeners
+      document.removeEventListener('click', handleUserInteraction);
+      document.removeEventListener('touchstart', handleUserInteraction);
+      document.removeEventListener('keydown', handleUserInteraction);
+    };
+    
+    // Add event listeners for user interaction
+    document.addEventListener('click', handleUserInteraction, { once: true });
+    document.addEventListener('touchstart', handleUserInteraction, { once: true });
+    document.addEventListener('keydown', handleUserInteraction, { once: true });
+    
+    console.log('User interaction handler setup complete');
   }
 
   /**

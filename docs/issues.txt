@@ -1,1 +1,3 @@
 1. I notice if I'm in a room by myself for awhile, I drop from the current speakers though I can still hear myself. Why am I dropping? I should only drop from the room if I leave the site.
+
+2. In production, I can only here myself and the second individual can only hear themselves. I need to be able to hear the other person in the room.

@@ -62,12 +62,21 @@ export class AudioStreamManager {
       // Create destination for mixed audio
       this.mixerDestination = this.audioContext.createMediaStreamDestination()
 
-      // Create audio element for playback
+      // Create audio element for playback with production-friendly settings
       this.audioElement = document.createElement('audio')
-      this.audioElement.autoplay = true
+      this.audioElement.autoplay = false // Don't use autoplay for production compatibility
       this.audioElement.controls = false
       this.audioElement.style.display = 'none'
+      this.audioElement.volume = 1.0
+      this.audioElement.muted = false
+      
+      // Set additional attributes for better compatibility
+      this.audioElement.setAttribute('playsinline', 'true')
+      this.audioElement.setAttribute('webkit-playsinline', 'true')
+      
       document.body.appendChild(this.audioElement)
+      
+      console.log('🔊 Audio element created with production-friendly settings')
 
       // Connect the audio processing chain
       this.setupAudioChain()
@@ -128,11 +137,11 @@ export class AudioStreamManager {
   /**
    * Add a speaker's audio stream to the mixer
    */
-  addSpeakerStream(
+  async addSpeakerStream(
     speakerId: string,
     stream: MediaStream,
     gain: number = this.config.speakerGain
-  ): void {
+  ): Promise<void> {
     if (!this.audioContext || !this.mixerDestination) {
       throw new Error('AudioStreamManager not initialized')
     }
@@ -149,6 +158,9 @@ export class AudioStreamManager {
           readyState: t.readyState,
         }))
       )
+
+      // Ensure audio context is running
+      await this.ensureAudioContextRunning()
 
       // Create audio source from stream
       const source = this.audioContext.createMediaStreamSource(stream)
@@ -167,6 +179,12 @@ export class AudioStreamManager {
       source.connect(gainNode)
       gainNode.connect(this.getAudioChainInput())
       console.log(`🔊 Connected ${speakerId} to audio chain`)
+
+      // Start audio playback if not already playing
+      if (!this.isAudioPlaying()) {
+        console.log('🔊 Starting audio playback for new speaker')
+        await this.startAudioPlayback()
+      }
 
       console.log(
         `✅ Added speaker ${speakerId} to audio mixer with gain ${gain}`
@@ -227,7 +245,46 @@ export class AudioStreamManager {
    * Get the mixed audio stream for playback
    */
   getMixedAudioStream(): MediaStream | null {
-    return this.mixerDestination?.stream || null
+    const stream = this.mixerDestination?.stream || null
+    if (stream) {
+      console.log('🔊 Mixed audio stream available:', {
+        id: stream.id,
+        tracks: stream.getTracks().map(t => ({
+          id: t.id,
+          kind: t.kind,
+          enabled: t.enabled,
+          readyState: t.readyState
+        }))
+      })
+    }
+    return stream
+  }
+
+  /**
+   * Check if audio is currently playing
+   */
+  private isAudioPlaying(): boolean {
+    if (!this.audioElement) return false
+    return !this.audioElement.paused && !this.audioElement.ended && this.audioElement.readyState > 2
+  }
+
+  /**
+   * Force audio playback to start (for user interaction)
+   */
+  async forceStartAudioPlayback(): Promise<void> {
+    console.log('🔊 Force starting audio playback (user interaction)')
+    
+    try {
+      // Ensure audio context is running
+      await this.ensureAudioContextRunning()
+      
+      // Start audio playback
+      await this.startAudioPlayback()
+      
+    } catch (error) {
+      console.error('❌ Failed to force start audio playback:', error)
+      throw error
+    }
   }
 
   /**
@@ -290,19 +347,131 @@ export class AudioStreamManager {
   }
 
   /**
+   * Monitor audio playback state and handle issues
+   */
+  private monitorAudioPlayback(): void {
+    if (!this.audioElement) return
+
+    const handlePlaybackIssue = (event: Event) => {
+      console.warn('⚠️  Audio playback issue detected:', event.type)
+      
+      // Try to restart playback
+      this.restartAudioPlayback()
+    }
+
+    // Monitor for playback issues
+    this.audioElement.addEventListener('error', handlePlaybackIssue)
+    this.audioElement.addEventListener('abort', handlePlaybackIssue)
+    this.audioElement.addEventListener('stalled', handlePlaybackIssue)
+    
+    // Monitor for successful playback
+    this.audioElement.addEventListener('playing', () => {
+      console.log('✅ Audio element is playing')
+    })
+    
+    this.audioElement.addEventListener('pause', () => {
+      console.log('⏸️  Audio element paused')
+    })
+  }
+
+  /**
+   * Restart audio playback when issues are detected
+   */
+  private async restartAudioPlayback(): Promise<void> {
+    try {
+      console.log('🔄 Restarting audio playback')
+      await this.stopAudioPlayback()
+      await this.startAudioPlayback()
+    } catch (error) {
+      console.error('❌ Failed to restart audio playback:', error)
+    }
+  }
+
+  /**
+   * Fallback audio playback method for production environments
+   */
+  private async fallbackAudioPlayback(): Promise<void> {
+    try {
+      console.log('🔄 Attempting fallback audio playback')
+      
+      if (!this.mixerDestination) {
+        throw new Error('No mixer destination available')
+      }
+      
+      // Create a new audio element with different settings
+      const fallbackAudio = document.createElement('audio')
+      fallbackAudio.autoplay = false // Don't use autoplay for fallback
+      fallbackAudio.controls = false
+      fallbackAudio.style.display = 'none'
+      fallbackAudio.volume = 1.0
+      fallbackAudio.muted = false
+      
+      // Set up the stream
+      fallbackAudio.srcObject = this.mixerDestination.stream
+      
+      // Replace the existing audio element
+      if (this.audioElement) {
+        document.body.removeChild(this.audioElement)
+      }
+      
+      this.audioElement = fallbackAudio
+      document.body.appendChild(this.audioElement)
+      
+      // Wait for user interaction to start playback
+      console.log('🔊 Fallback audio element created, waiting for user interaction')
+      
+      // Add click handler to resume playback
+      const resumePlayback = async () => {
+        try {
+          await this.ensureAudioContextRunning()
+          await this.audioElement!.play()
+          console.log('✅ Fallback audio playback started')
+          document.removeEventListener('click', resumePlayback)
+        } catch (error) {
+          console.error('❌ Fallback playback failed:', error)
+        }
+      }
+      
+      document.addEventListener('click', resumePlayback, { once: true })
+      
+    } catch (error) {
+      console.error('❌ Fallback audio playback failed:', error)
+    }
+  }
+
+  /**
    * Resume audio context if suspended
    */
   async resume(): Promise<void> {
+    await this.ensureAudioContextRunning()
+  }
+
+  /**
+   * Ensure audio context is running with proper error handling
+   */
+  private async ensureAudioContextRunning(): Promise<void> {
+    if (!this.audioContext) {
+      throw new Error('Audio context not initialized')
+    }
+
     console.log(
-      `🔊 Attempting to resume audio context, current state: ${this.audioContext?.state}`
+      `🔊 Checking audio context state: ${this.audioContext.state}`
     )
-    if (this.audioContext?.state === 'suspended') {
-      await this.audioContext.resume()
-      console.log('✅ Audio context resumed')
+
+    if (this.audioContext.state === 'suspended') {
+      try {
+        console.log('🔊 Resuming suspended audio context')
+        await this.audioContext.resume()
+        console.log('✅ Audio context resumed successfully')
+      } catch (error) {
+        console.error('❌ Failed to resume audio context:', error)
+        throw error
+      }
+    } else if (this.audioContext.state === 'closed') {
+      console.error('❌ Audio context is closed, cannot resume')
+      throw new Error('Audio context is closed')
     } else {
-      console.log(
-        `🔊 Audio context not suspended, current state: ${this.audioContext?.state}`
-      )
+      console.log('✅ Audio context is already running')
     }
   }
 
@@ -318,26 +487,88 @@ export class AudioStreamManager {
   }
 
   /**
-   * Start audio playback
+   * Start audio playback with proper error handling and fallback
    */
-  startAudioPlayback(): void {
-    if (this.audioElement && this.mixerDestination) {
+  async startAudioPlayback(): Promise<void> {
+    if (!this.audioElement || !this.mixerDestination) {
+      console.error('❌ Audio element or mixer destination not available')
+      return
+    }
+
+    try {
+      // Ensure audio context is running
+      await this.ensureAudioContextRunning()
+      
       console.log('🔊 Starting audio playback')
+      console.log('🔊 Mixed stream tracks:', this.mixerDestination.stream.getTracks().map(t => ({ 
+        id: t.id, 
+        kind: t.kind, 
+        enabled: t.enabled, 
+        readyState: t.readyState 
+      })))
+      
+      // Set up audio element for playback
       this.audioElement.srcObject = this.mixerDestination.stream
-      this.audioElement.play().catch(error => {
-        console.error('❌ Failed to start audio playback:', error)
-      })
+      this.audioElement.volume = 1.0
+      this.audioElement.muted = false
+      
+      // Handle playback with retry logic
+      let retryCount = 0
+      const maxRetries = 3
+      
+      while (retryCount < maxRetries) {
+        try {
+          await this.audioElement.play()
+          console.log('✅ Audio playback started successfully')
+          
+          // Monitor playback state
+          this.monitorAudioPlayback()
+          return
+        } catch (playError) {
+          retryCount++
+          console.warn(`⚠️  Audio playback attempt ${retryCount} failed:`, playError)
+          
+          if (retryCount < maxRetries) {
+            // Wait before retry
+            await new Promise(resolve => setTimeout(resolve, 1000))
+            
+            // Try to resume audio context again
+            await this.ensureAudioContextRunning()
+          } else {
+            throw playError
+          }
+        }
+      }
+    } catch (error) {
+      console.error('❌ Failed to start audio playback:', error)
+      
+      // Try fallback playback method
+      await this.fallbackAudioPlayback()
     }
   }
 
   /**
    * Stop audio playback
    */
-  stopAudioPlayback(): void {
+  async stopAudioPlayback(): Promise<void> {
     if (this.audioElement) {
       console.log('🔊 Stopping audio playback')
-      this.audioElement.pause()
-      this.audioElement.srcObject = null
+      
+      try {
+        this.audioElement.pause()
+        this.audioElement.srcObject = null
+        
+        // Remove event listeners
+        this.audioElement.removeEventListener('error', () => {})
+        this.audioElement.removeEventListener('abort', () => {})
+        this.audioElement.removeEventListener('stalled', () => {})
+        this.audioElement.removeEventListener('playing', () => {})
+        this.audioElement.removeEventListener('pause', () => {})
+        
+        console.log('✅ Audio playback stopped')
+      } catch (error) {
+        console.error('❌ Error stopping audio playback:', error)
+      }
     }
   }
 

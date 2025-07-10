@@ -555,4 +555,29 @@ export class GlobalVoiceRoomManager {
     console.log('🔄 Updating current user:', user)
     this.currentUser = user
   }
+
+  /**
+   * Resume audio playback (for user interaction)
+   */
+  async resumeAudioPlayback(): Promise<void> {
+    try {
+      console.log('🔊 Resuming audio playback in GlobalVoiceRoomManager')
+      
+      // Resume audio stream manager
+      await this.audioStreamManager.resume()
+      
+      // Force start audio playback
+      await this.audioStreamManager.forceStartAudioPlayback()
+      
+      // Resume voice broadcast manager audio if available
+      if (this.voiceBroadcastManager && typeof this.voiceBroadcastManager.forceStartAudioPlayback === 'function') {
+        await this.voiceBroadcastManager.forceStartAudioPlayback()
+      }
+      
+      console.log('✅ Audio playback resumed successfully')
+    } catch (error) {
+      console.error('❌ Failed to resume audio playback:', error)
+      throw error
+    }
+  }
 }

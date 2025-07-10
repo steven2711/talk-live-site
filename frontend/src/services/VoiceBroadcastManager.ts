@@ -15,6 +15,8 @@ export interface BroadcastState {
   audioContext?: AudioContext;
   mixedAudioDestination?: MediaStreamAudioDestinationNode;
   speakerStreams: Map<string, MediaStream>;
+  audioElement?: HTMLAudioElement;
+  gainNodes: Map<string, GainNode>;
 }
 
 export class VoiceBroadcastManager {
@@ -31,7 +33,8 @@ export class VoiceBroadcastManager {
       role: 'listener',
       isActive: false,
       remotePeers: new Map(),
-      speakerStreams: new Map()
+      speakerStreams: new Map(),
+      gainNodes: new Map()
     };
 
     this.setupSocketHandlers();
@@ -192,6 +195,20 @@ export class VoiceBroadcastManager {
       });
       this.state.remotePeers.clear();
 
+      // Stop and cleanup audio element
+      if (this.state.audioElement) {
+        this.state.audioElement.pause();
+        this.state.audioElement.srcObject = null;
+        document.body.removeChild(this.state.audioElement);
+        this.state.audioElement = undefined;
+      }
+      
+      // Disconnect all gain nodes
+      this.state.gainNodes.forEach(gainNode => {
+        gainNode.disconnect();
+      });
+      this.state.gainNodes.clear();
+
       // Cleanup audio context
       if (this.state.audioContext) {
         await this.state.audioContext.close();
@@ -310,9 +327,15 @@ export class VoiceBroadcastManager {
       const connection = new RTCPeerConnection({ iceServers: this.iceServers });
 
       // Handle incoming stream
-      connection.ontrack = (event) => {
+      connection.ontrack = async (event) => {
+        console.log(`Received track from speaker ${speakerId}:`, event.track);
         const [stream] = event.streams;
-        this.addSpeakerStream(speakerId, stream);
+        if (stream) {
+          console.log(`Received stream from speaker ${speakerId}`, stream);
+          await this.addSpeakerStream(speakerId, stream);
+        } else {
+          console.warn(`No stream received from speaker ${speakerId}`);
+        }
       };
 
       // Handle ICE candidates
@@ -325,7 +348,7 @@ export class VoiceBroadcastManager {
         }
       };
 
-      // Handle connection state changes
+          // Handle connection state changes
       connection.onconnectionstatechange = () => {
         console.log(`Connection to speaker ${speakerId}: ${connection.connectionState}`);
         if (connection.connectionState === 'failed' || connection.connectionState === 'disconnected') {
@@ -397,8 +420,24 @@ export class VoiceBroadcastManager {
 
   private async setupAudioMixing(): Promise<void> {
     try {
+      console.log('Setting up audio mixing for listener');
+      
       this.state.audioContext = new AudioContext();
       this.state.mixedAudioDestination = this.state.audioContext.createMediaStreamDestination();
+      
+      // Create audio element for playback
+      this.state.audioElement = document.createElement('audio');
+      this.state.audioElement.autoplay = false;
+      this.state.audioElement.controls = false;
+      this.state.audioElement.style.display = 'none';
+      this.state.audioElement.volume = 1.0;
+      this.state.audioElement.muted = false;
+      
+      // Set attributes for better compatibility
+      this.state.audioElement.setAttribute('playsinline', 'true');
+      this.state.audioElement.setAttribute('webkit-playsinline', 'true');
+      
+      document.body.appendChild(this.state.audioElement);
       
       console.log('Audio mixing setup complete');
     } catch (error) {
@@ -407,22 +446,39 @@ export class VoiceBroadcastManager {
     }
   }
 
-  private addSpeakerStream(speakerId: string, stream: MediaStream): void {
+  private async addSpeakerStream(speakerId: string, stream: MediaStream): Promise<void> {
     try {
+      console.log(`Adding speaker ${speakerId} stream to broadcast manager`);
+      console.log('Stream tracks:', stream.getTracks().map(t => ({
+        id: t.id,
+        kind: t.kind,
+        enabled: t.enabled,
+        readyState: t.readyState
+      })));
+      
       this.state.speakerStreams.set(speakerId, stream);
 
       // Add to audio mixing if we're a listener
       if (this.state.role === 'listener' && this.state.audioContext && this.state.mixedAudioDestination) {
+        // Ensure audio context is running
+        await this.ensureAudioContextRunning();
+        
         const source = this.state.audioContext.createMediaStreamSource(stream);
         const gainNode = this.state.audioContext.createGain();
         
         // Set equal volume for both speakers
         gainNode.gain.value = 0.5;
         
+        // Store gain node for later reference
+        this.state.gainNodes.set(speakerId, gainNode);
+        
         source.connect(gainNode);
         gainNode.connect(this.state.mixedAudioDestination);
         
         console.log(`Added speaker ${speakerId} to audio mix`);
+        
+        // Start playing the mixed audio
+        await this.startMixedAudioPlayback();
       }
 
       // Emit event for UI updates
@@ -438,6 +494,13 @@ export class VoiceBroadcastManager {
       peer.connection.close();
       this.state.remotePeers.delete(peerId);
       this.state.speakerStreams.delete(peerId);
+      
+      // Disconnect and remove gain node
+      const gainNode = this.state.gainNodes.get(peerId);
+      if (gainNode) {
+        gainNode.disconnect();
+        this.state.gainNodes.delete(peerId);
+      }
       
       console.log(`Removed peer ${peerId}`);
       this.emitStateChange();
@@ -455,6 +518,154 @@ export class VoiceBroadcastManager {
       }
     });
     window.dispatchEvent(event);
+  }
+
+  /**
+   * Ensure audio context is running
+   */
+  private async ensureAudioContextRunning(): Promise<void> {
+    if (!this.state.audioContext) {
+      throw new Error('Audio context not initialized');
+    }
+
+    console.log(`Audio context state: ${this.state.audioContext.state}`);
+
+    if (this.state.audioContext.state === 'suspended') {
+      try {
+        console.log('Resuming suspended audio context');
+        await this.state.audioContext.resume();
+        console.log('Audio context resumed successfully');
+      } catch (error) {
+        console.error('Failed to resume audio context:', error);
+        throw error;
+      }
+    } else if (this.state.audioContext.state === 'closed') {
+      console.error('Audio context is closed');
+      throw new Error('Audio context is closed');
+    }
+  }
+
+  /**
+   * Start playing the mixed audio stream
+   */
+  private async startMixedAudioPlayback(): Promise<void> {
+    if (!this.state.audioElement || !this.state.mixedAudioDestination) {
+      console.warn('Audio element or mixed audio destination not available');
+      return;
+    }
+
+    try {
+      // Don't restart if already playing
+      if (this.state.audioElement.srcObject === this.state.mixedAudioDestination.stream) {
+        if (!this.state.audioElement.paused) {
+          console.log('Mixed audio already playing');
+          return;
+        }
+      }
+
+      console.log('Starting mixed audio playback');
+      
+      // Set up the audio element
+      this.state.audioElement.srcObject = this.state.mixedAudioDestination.stream;
+      
+      // Monitor playback
+      this.setupAudioPlaybackMonitoring();
+      
+      // Try to play
+      await this.state.audioElement.play();
+      console.log('Mixed audio playback started successfully');
+      
+    } catch (error) {
+      console.error('Failed to start mixed audio playback:', error);
+      
+      // Try fallback approach
+      await this.fallbackAudioPlayback();
+    }
+  }
+
+  /**
+   * Setup audio playback monitoring
+   */
+  private setupAudioPlaybackMonitoring(): void {
+    if (!this.state.audioElement) return;
+
+    const audioElement = this.state.audioElement;
+    
+    audioElement.onplaying = () => {
+      console.log('Mixed audio is playing');
+    };
+    
+    audioElement.onpause = () => {
+      console.log('Mixed audio paused');
+    };
+    
+    audioElement.onerror = (error) => {
+      console.error('Audio playback error:', error);
+      this.restartAudioPlayback();
+    };
+    
+    audioElement.onended = () => {
+      console.log('Mixed audio ended');
+    };
+  }
+
+  /**
+   * Restart audio playback when issues occur
+   */
+  private async restartAudioPlayback(): Promise<void> {
+    try {
+      console.log('Restarting audio playback');
+      await this.startMixedAudioPlayback();
+    } catch (error) {
+      console.error('Failed to restart audio playback:', error);
+    }
+  }
+
+  /**
+   * Fallback audio playback for production environments
+   */
+  private async fallbackAudioPlayback(): Promise<void> {
+    console.log('Attempting fallback audio playback');
+    
+    // Wait for user interaction
+    const waitForUserInteraction = () => {
+      const startPlayback = async () => {
+        try {
+          await this.ensureAudioContextRunning();
+          if (this.state.audioElement) {
+            await this.state.audioElement.play();
+            console.log('Fallback audio playback started');
+          }
+        } catch (error) {
+          console.error('Fallback playback failed:', error);
+        }
+        
+        // Remove event listeners
+        document.removeEventListener('click', startPlayback);
+        document.removeEventListener('touchstart', startPlayback);
+      };
+      
+      // Add event listeners for user interaction
+      document.addEventListener('click', startPlayback, { once: true });
+      document.addEventListener('touchstart', startPlayback, { once: true });
+      
+      console.log('Waiting for user interaction to start audio playback');
+    };
+    
+    waitForUserInteraction();
+  }
+
+  /**
+   * Force start audio playback (for user interaction)
+   */
+  async forceStartAudioPlayback(): Promise<void> {
+    try {
+      console.log('Force starting audio playback');
+      await this.ensureAudioContextRunning();
+      await this.startMixedAudioPlayback();
+    } catch (error) {
+      console.error('Failed to force start audio playback:', error);
+    }
   }
 
   // Getters for state inspection
