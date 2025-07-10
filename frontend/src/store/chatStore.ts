@@ -14,10 +14,7 @@ import {
 } from '../types'
 import { GlobalVoiceRoomManager } from '../services/GlobalVoiceRoomManager'
 
-const SOCKET_URL =
-  import.meta.env.PROD
-    ? window.location.origin
-    : import.meta.env.VITE_API_URL || 'http://localhost:3000'
+const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
 
 // Utility function to check server connectivity
 const checkServerConnectivity = async (url: string): Promise<boolean> => {
