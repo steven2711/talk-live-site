@@ -26,6 +26,7 @@ export class GlobalVoiceRoomManager {
   private roomState: VoiceRoomState | null = null
   private eventListeners: Partial<VoiceRoomManagerEvents> = {}
   private audioLevelInterval: number | null = null
+  private heartbeatInterval: number | null = null
   private isInitialized = false
 
   constructor(socket: any) {
@@ -71,9 +72,54 @@ export class GlobalVoiceRoomManager {
 
       this.isInitialized = true
       console.log('GlobalVoiceRoomManager initialized successfully')
+      
+      // Start heartbeat monitoring
+      this.startHeartbeat()
     } catch (error) {
       console.error('Failed to initialize GlobalVoiceRoomManager:', error)
       throw error
+    }
+  }
+
+  /**
+   * Start heartbeat monitoring to ensure user activity is tracked
+   */
+  private startHeartbeat(): void {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval)
+    }
+
+    console.log('Starting heartbeat monitoring')
+    
+    // Send heartbeat every 30 seconds
+    this.heartbeatInterval = window.setInterval(() => {
+      if (this.currentUser && this.roomState) {
+        this.socket.emit('heartbeat', {
+          userId: this.currentUser.id,
+          timestamp: Date.now(),
+          roomId: this.roomState.roomId
+        })
+      }
+    }, 30000)
+
+    // Send initial heartbeat
+    if (this.currentUser && this.roomState) {
+      this.socket.emit('heartbeat', {
+        userId: this.currentUser.id,
+        timestamp: Date.now(),
+        roomId: this.roomState.roomId
+      })
+    }
+  }
+
+  /**
+   * Stop heartbeat monitoring
+   */
+  private stopHeartbeat(): void {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval)
+      this.heartbeatInterval = null
+      console.log('Heartbeat monitoring stopped')
     }
   }
 
@@ -142,6 +188,9 @@ export class GlobalVoiceRoomManager {
         clearInterval(this.audioLevelInterval)
         this.audioLevelInterval = null
       }
+
+      // Stop heartbeat monitoring
+      this.stopHeartbeat()
 
       // Notify server
       this.socket.emit('leave_voice_room')
@@ -364,6 +413,9 @@ export class GlobalVoiceRoomManager {
         await this.leaveRoom()
       }
 
+      // Stop heartbeat monitoring
+      this.stopHeartbeat()
+
       // Cleanup managers
       await this.voiceBroadcastManager.cleanup()
       await this.audioStreamManager.cleanup()
@@ -386,6 +438,9 @@ export class GlobalVoiceRoomManager {
       console.log('Joined voice room:', roomState)
       this.roomState = roomState
       this.emit('roomJoined', roomState)
+
+      // Start heartbeat monitoring for this room
+      this.startHeartbeat()
 
       // Start listening if we're a listener
       if (this.getCurrentUserRole() === VoiceRoomRole.LISTENER) {

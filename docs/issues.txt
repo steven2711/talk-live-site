@@ -1,8 +1,18 @@
-1. I notice if I'm in a room by myself for awhile, I drop from the current speakers though I can still hear myself. Why am I dropping? I should only drop from the room if I leave the site.
-   STATUS: FIXED - Added connection health monitoring, recovery mechanisms, and periodic connection checks to prevent users from dropping due to audio context issues.
-
-2. In production, I can only here myself and the second individual can only hear themselves. I need to be able to hear the other person in the room.
-   STATUS: FIXED - Modified audio routing logic to prevent users from hearing themselves. Added check in VoiceBroadcastManager.ts to skip own stream when adding to audio mix.
-
-3. Why do I have to click enable audio to hear others speak? This should be automatic.
-   STATUS: FIXED - Implemented automatic audio activation that attempts to start on component mount and enables on any user interaction. Manual audio enable button is now only shown as fallback if automatic activation fails.
+4. When users leave the site or close their tab, they are still slotted in the speaker slots and queue. The need to be removed from the queue and speaker slot when they leave.
+   STATUS: FIXED - Implemented comprehensive disconnect handling solution:
+   
+   Frontend Changes:
+   - Added page unload event handlers (beforeunload, visibilitychange, pagehide) to VoiceRoomInterface.tsx
+   - Implemented heartbeat monitoring every 30 seconds with user activity tracking
+   - Added Page Visibility API integration to detect when users become inactive
+   - Created graceful disconnect utility with retry logic and multiple disconnect strategies
+   - Emergency disconnect using navigator.sendBeacon for reliable signaling on page unload
+   
+   Backend Changes:
+   - Enhanced backend cleanup logic with reduced inactivity threshold (2 minutes instead of 5)
+   - Added heartbeat event handlers to both main and voice room socket services
+   - Increased cleanup frequency from 5 minutes to 30 seconds for faster user removal
+   - Improved logging and warning system for inactive users
+   - Added user activity tracking with heartbeat acknowledgments
+   
+   Result: Users are now properly removed from speaker slots and queue within 2 minutes of disconnection, with most removals happening within 30 seconds due to more frequent cleanup cycles.

@@ -256,6 +256,17 @@ export class GlobalVoiceRoomManager {
   }
 
   /**
+   * Update user activity timestamp
+   */
+  updateUserActivity(userId: string): void {
+    const voiceUser = this.userVoiceData.get(userId);
+    if (voiceUser) {
+      voiceUser.user.lastActivity = new Date();
+      logger.debug(`Updated activity for user ${userId}`);
+    }
+  }
+
+  /**
    * Clean up inactive users (called periodically)
    */
   cleanupInactiveUsers(maxInactiveTime: number = 300000): string[] { // 5 minutes default

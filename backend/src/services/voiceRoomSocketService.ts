@@ -221,6 +221,29 @@ export function setupVoiceRoomSocketHandlers(io: TypedServer, voiceRoomManager: 
       }
     })
 
+    // Handle enhanced heartbeat for voice room monitoring
+    socket.on('heartbeat', (data: { userId: string; timestamp: number; roomId: string }) => {
+      try {
+        const user = socket.data.user
+        if (user && user.id === data.userId) {
+          // Update user activity
+          user.lastActivity = new Date()
+          
+          // Update voice room manager activity
+          voiceRoomManager.updateUserActivity(user.id)
+          
+          logger.debug(`Voice room heartbeat received from user ${user.id}`)
+          
+          // Send heartbeat acknowledgment
+          socket.emit('heartbeat_ack', { timestamp: Date.now() })
+        } else {
+          logger.warn(`Voice room heartbeat received from unauthorized user: ${data.userId}`)
+        }
+      } catch (error) {
+        logger.error(`Error handling voice room heartbeat: ${error}`)
+      }
+    })
+
     // Handle disconnection
     socket.on('disconnect', (reason) => {
       try {
@@ -237,18 +260,18 @@ export function setupVoiceRoomSocketHandlers(io: TypedServer, voiceRoomManager: 
     })
   })
 
-  // Periodic cleanup and room state updates
+  // Periodic cleanup and room state updates - more frequent for better user experience
   setInterval(() => {
     try {
       const removedUsers = voiceRoomManager.cleanupInactiveUsers()
       if (removedUsers.length > 0) {
-        logger.info(`Cleaned up ${removedUsers.length} inactive users from voice room`)
+        logger.info(`Voice room service: Cleaned up ${removedUsers.length} inactive users`)
         broadcastRoomState(io, voiceRoomManager)
       }
     } catch (error) {
       logger.error(`Error during voice room cleanup: ${error}`)
     }
-  }, 60 * 1000) // Run every minute
+  }, 30 * 1000) // Run every 30 seconds for faster cleanup
 
   logger.info('Voice Room Socket.IO event handlers setup complete')
 }

@@ -237,26 +237,63 @@ export class VoiceRoomManager {
   }
 
   /**
-   * Clean up inactive users
+   * Update user activity timestamp
+   */
+  updateUserActivity(userId: string): void {
+    const now = new Date();
+    this.lastActivityUpdate.set(userId, now);
+    
+    // Find and update the user in the global room
+    const user = this.globalRoom.speakers.find(s => s.user.id === userId) || 
+                 this.globalRoom.listeners.find(l => l.user.id === userId);
+    
+    if (user) {
+      user.user.lastActivity = now;
+      logger.debug(`Updated activity for user ${userId}`);
+    }
+  }
+
+  /**
+   * Clean up inactive users with enhanced heartbeat failure detection
    */
   cleanupInactiveUsers(): number {
     const now = new Date();
-    const inactivityThreshold = 5 * 60 * 1000; // 5 minutes
+    const inactivityThreshold = 2 * 60 * 1000; // Reduced to 2 minutes for faster cleanup
+    const warningThreshold = 90 * 1000; // Warn after 90 seconds
     let removedCount = 0;
+    let warningCount = 0;
 
     const allUsers = this.getAllUsers();
     
     for (const user of allUsers) {
       const lastActivity = this.lastActivityUpdate.get(user.user.id);
-      if (lastActivity && (now.getTime() - lastActivity.getTime()) > inactivityThreshold) {
+      if (lastActivity) {
+        const inactivityDuration = now.getTime() - lastActivity.getTime();
+        
+        if (inactivityDuration > inactivityThreshold) {
+          // Remove user after 2 minutes of inactivity
+          this.removeUser(user.user.id);
+          removedCount++;
+          logger.info(`Removed inactive user: ${user.user.username} (inactive for ${Math.round(inactivityDuration / 1000)}s)`);
+        } else if (inactivityDuration > warningThreshold) {
+          // Log warning for users inactive for more than 90 seconds
+          warningCount++;
+          logger.warn(`User ${user.user.username} inactive for ${Math.round(inactivityDuration / 1000)}s - will be removed soon`);
+        }
+      } else {
+        // No activity record - remove immediately
         this.removeUser(user.user.id);
         removedCount++;
-        logger.info(`Removed inactive user: ${user.user.username}`);
+        logger.warn(`Removed user with no activity record: ${user.user.username}`);
       }
     }
 
     if (removedCount > 0) {
       logger.info(`Cleaned up ${removedCount} inactive users from voice room`);
+    }
+    
+    if (warningCount > 0) {
+      logger.debug(`${warningCount} users approaching inactivity threshold`);
     }
 
     return removedCount;

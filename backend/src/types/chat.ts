@@ -131,6 +131,7 @@ export interface ServerToClientEvents {
   // System events
   error: (error: string) => void
   chat_ended: () => void
+  heartbeat_ack: (data: { timestamp: number }) => void
 }
 
 export interface ClientToServerEvents {
@@ -154,6 +155,7 @@ export interface ClientToServerEvents {
   
   // Heartbeat
   ping: () => void
+  heartbeat: (data: { userId: string; timestamp: number; roomId: string }) => void
 }
 
 export interface InterServerEvents {

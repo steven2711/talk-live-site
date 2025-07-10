@@ -6,6 +6,7 @@ import SpeakerSection from './SpeakerSection';
 import QueueDisplay from './QueueDisplay';
 import AudioControls from './AudioControls';
 import JoinedUserCount from './JoinedUserCount';
+import { gracefulDisconnectManager, emergencyDisconnect } from '../utils/gracefulDisconnect';
 
 const VoiceRoomInterface: React.FC = () => {
   const {
@@ -16,7 +17,8 @@ const VoiceRoomInterface: React.FC = () => {
     requestSpeakerRole,
     setSpeakerVolume,
     muteSpeaker,
-    voiceRoomManager
+    voiceRoomManager,
+    socket
   } = useChatStore();
   
   const [audioEnabled, setAudioEnabled] = useState(false);
@@ -168,6 +170,79 @@ const VoiceRoomInterface: React.FC = () => {
       });
     };
   }, [voiceRoomManager, audioEnabled]);
+
+  // Handle page unload and disconnect events
+  useEffect(() => {
+    const handleGracefulDisconnect = async () => {
+      console.log('Graceful disconnect initiated');
+      try {
+        // Use graceful disconnect utility for better reliability
+        if (socket && currentUser) {
+          await gracefulDisconnectManager.disconnect(socket, {
+            userId: currentUser.id,
+            reason: 'user_leaving'
+          });
+        }
+        
+        // Standard disconnect
+        disconnect();
+        
+        // If we have a voice room manager, clean it up
+        if (voiceRoomManager && typeof voiceRoomManager.cleanup === 'function') {
+          await voiceRoomManager.cleanup();
+        }
+      } catch (error) {
+        console.error('Error during graceful disconnect:', error);
+      }
+    };
+
+    // Handle page unload (user closing tab/browser)
+    const handleBeforeUnload = () => {
+      // Use emergency disconnect for immediate, reliable signaling
+      if (currentUser) {
+        emergencyDisconnect(currentUser.id);
+      }
+      
+      // Also attempt standard disconnect
+      try {
+        disconnect();
+      } catch (error) {
+        console.error('Error during beforeunload disconnect:', error);
+      }
+    };
+
+    // Handle page hide (mobile browsers, tab switching)
+    const handlePageHide = () => {
+      console.log('Page hidden, attempting disconnect');
+      handleGracefulDisconnect();
+    };
+
+    // Handle visibility change (tab becomes hidden)
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        console.log('Page became hidden, starting disconnect timer');
+        // Give the user 30 seconds before disconnecting in case they're just switching tabs
+        setTimeout(() => {
+          if (document.hidden) {
+            console.log('Page still hidden after 30 seconds, disconnecting');
+            handleGracefulDisconnect();
+          }
+        }, 30000);
+      }
+    };
+
+    // Add event listeners
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pagehide', handlePageHide);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Cleanup function
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', handlePageHide);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [disconnect, voiceRoomManager, currentUser, socket]);
 
   // Use mock data for demo (remove when backend is connected)
 
