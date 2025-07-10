@@ -1,5 +1,5 @@
-import { logger } from '../utils/logger';
-import { VoiceRoomUser, VoiceRoomRole, GlobalVoiceRoom, VoiceRoomState, User, VoiceRoomBroadcastMessage } from '../types/chat';
+import { logger } from '../utils/logger.js';
+import { VoiceRoomUser, VoiceRoomRole, GlobalVoiceRoom, VoiceRoomState, User, VoiceRoomBroadcastMessage } from '../types/chat.js';
 
 export class VoiceRoomManager {
   private globalRoom: GlobalVoiceRoom;

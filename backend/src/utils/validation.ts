@@ -1,4 +1,4 @@
-import { ErrorCodes } from '../types'
+import { ErrorCodes } from '../types/index.js'
 
 export interface ValidationResult {
   isValid: boolean

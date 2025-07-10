@@ -20,16 +20,30 @@ import type {
   SocketData,
 } from './types/index.js'
 
+// Log startup
+logger.info('Starting server initialization...')
+
 // Environment configuration
 const PORT = process.env.PORT || 3001
 const NODE_ENV = process.env.NODE_ENV || 'development'
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000'
 
+logger.info('Environment configuration:', {
+  PORT,
+  NODE_ENV,
+  FRONTEND_URL,
+  processEnvPort: process.env.PORT,
+  processEnvNodeEnv: process.env.NODE_ENV,
+  processEnvFrontendUrl: process.env.FRONTEND_URL
+})
+
 // Create Express app
+logger.info('Creating Express app and HTTP server...')
 const app = express()
 const server = createServer(app)
 
 // Initialize Socket.IO with CORS configuration
+logger.info('Initializing Socket.IO server...')
 const io = new Server<
   ClientToServerEvents,
   ServerToClientEvents,
@@ -50,12 +64,15 @@ const io = new Server<
 })
 
 // Create chat manager instance
+logger.info('Creating chat manager instance...')
 const chatManager = new ChatManager()
 
 // Create global voice room manager instance
+logger.info('Creating global voice room manager instance...')
 const voiceRoomManager = new GlobalVoiceRoomManager(2) // Max 2 speakers
 
 // Middleware setup
+logger.info('Setting up Express middleware...')
 app.use(
   helmet({
     contentSecurityPolicy: NODE_ENV === 'production' ? undefined : false,
@@ -125,8 +142,15 @@ app.get('/api/voice-room', (_req, res) => {
 })
 
 // Setup Socket.IO event handlers
-setupSocketHandlers(io, chatManager)
-setupVoiceRoomSocketHandlers(io, voiceRoomManager)
+logger.info('Setting up Socket.IO event handlers...')
+try {
+  setupSocketHandlers(io, chatManager)
+  setupVoiceRoomSocketHandlers(io, voiceRoomManager)
+  logger.info('Socket.IO event handlers setup completed')
+} catch (error) {
+  logger.error('Failed to setup Socket.IO handlers:', error)
+  throw error
+}
 
 // Error handling middleware
 app.use(
@@ -164,9 +188,18 @@ process.on('SIGINT', () => {
 })
 
 // Start server
+logger.info(`Attempting to start server on port ${PORT}...`)
 server.listen(PORT, () => {
+  logger.info('=== SERVER STARTED SUCCESSFULLY ===')
   logger.info(`Server running on port ${PORT} in ${NODE_ENV} mode`)
   logger.info(`Frontend URL: ${FRONTEND_URL}`)
+  logger.info(`Health check available at: http://localhost:${PORT}/health`)
+  logger.info('===================================')
+})
+
+server.on('error', (error: Error) => {
+  logger.error('Server failed to start:', error)
+  process.exit(1)
 })
 
 export { app, server, io }

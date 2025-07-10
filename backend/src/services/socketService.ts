@@ -1,17 +1,17 @@
 import { Server, Socket } from 'socket.io'
 import { v4 as uuidv4 } from 'uuid'
-import { logger } from '../utils/logger'
-import { validateUsername } from '../utils/validation'
-import { ChatManager } from './chatManager'
-import { VoiceRoomManager } from './voiceRoomManager'
+import { logger } from '../utils/logger.js'
+import { validateUsername } from '../utils/validation.js'
+import { ChatManager } from './chatManager.js'
+import { VoiceRoomManager } from './voiceRoomManager.js'
 import type { 
   ServerToClientEvents, 
   ClientToServerEvents, 
   InterServerEvents, 
   SocketData,
   User
-} from '../types'
-import { ConnectionStatus, MessageType, VoiceRoomRole } from '../types'
+} from '../types/index.js'
+import { ConnectionStatus, MessageType, VoiceRoomRole } from '../types/index.js'
 
 type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>
 type TypedServer = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>
