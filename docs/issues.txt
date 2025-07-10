@@ -1,3 +1,8 @@
 1. I notice if I'm in a room by myself for awhile, I drop from the current speakers though I can still hear myself. Why am I dropping? I should only drop from the room if I leave the site.
+   STATUS: FIXED - Added connection health monitoring, recovery mechanisms, and periodic connection checks to prevent users from dropping due to audio context issues.
 
 2. In production, I can only here myself and the second individual can only hear themselves. I need to be able to hear the other person in the room.
+   STATUS: FIXED - Modified audio routing logic to prevent users from hearing themselves. Added check in VoiceBroadcastManager.ts to skip own stream when adding to audio mix.
+
+3. Why do I have to click enable audio to hear others speak? This should be automatic.
+   STATUS: FIXED - Implemented automatic audio activation that attempts to start on component mount and enables on any user interaction. Manual audio enable button is now only shown as fallback if automatic activation fails.

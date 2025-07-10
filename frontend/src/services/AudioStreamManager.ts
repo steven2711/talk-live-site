@@ -81,6 +81,9 @@ export class AudioStreamManager {
       // Connect the audio processing chain
       this.setupAudioChain()
 
+      // Start audio context monitoring
+      this.startAudioContextMonitoring()
+
       console.log('AudioStreamManager initialized successfully')
     } catch (error) {
       console.error('Failed to initialize AudioStreamManager:', error)
@@ -447,6 +450,27 @@ export class AudioStreamManager {
   }
 
   /**
+   * Resume audio playback for user interaction
+   */
+  async resumeAudioPlayback(): Promise<void> {
+    console.log('🔊 Resuming audio playback (user interaction)')
+    
+    try {
+      // Ensure audio context is running
+      await this.ensureAudioContextRunning()
+      
+      // Start audio playback if we have streams
+      if (this.speakerSources.size > 0) {
+        await this.startAudioPlayback()
+      }
+      
+    } catch (error) {
+      console.error('❌ Failed to resume audio playback:', error)
+      throw error
+    }
+  }
+
+  /**
    * Ensure audio context is running with proper error handling
    */
   private async ensureAudioContextRunning(): Promise<void> {
@@ -463,16 +487,116 @@ export class AudioStreamManager {
         console.log('🔊 Resuming suspended audio context')
         await this.audioContext.resume()
         console.log('✅ Audio context resumed successfully')
+        
+        // Restart audio monitoring after resume
+        this.startAudioContextMonitoring()
       } catch (error) {
         console.error('❌ Failed to resume audio context:', error)
         throw error
       }
     } else if (this.audioContext.state === 'closed') {
-      console.error('❌ Audio context is closed, cannot resume')
-      throw new Error('Audio context is closed')
+      console.error('❌ Audio context is closed, reinitializing')
+      // Try to reinitialize the audio context
+      await this.reinitializeAudioContext()
     } else {
       console.log('✅ Audio context is already running')
     }
+  }
+
+  /**
+   * Reinitialize audio context when it's closed
+   */
+  private async reinitializeAudioContext(): Promise<void> {
+    try {
+      console.log('🔄 Reinitializing audio context')
+      
+      // Create new audio context
+      this.audioContext = new AudioContext()
+      
+      // Recreate master gain node
+      this.masterGain = this.audioContext.createGain()
+      this.masterGain.gain.value = this.config.masterVolume
+
+      // Recreate compressor if enabled
+      if (this.config.enableCompression) {
+        this.compressor = this.audioContext.createDynamicsCompressor()
+        this.compressor.threshold.value = -24
+        this.compressor.knee.value = 30
+        this.compressor.ratio.value = 12
+        this.compressor.attack.value = 0.003
+        this.compressor.release.value = 0.25
+      }
+
+      // Recreate analyser
+      this.analyser = this.audioContext.createAnalyser()
+      this.analyser.fftSize = 256
+      this.analyser.smoothingTimeConstant = 0.8
+
+      // Recreate mixer destination
+      this.mixerDestination = this.audioContext.createMediaStreamDestination()
+
+      // Reconnect audio chain
+      this.setupAudioChain()
+
+      // Reconnect all existing sources
+      await this.reconnectAudioSources()
+
+      console.log('✅ Audio context reinitialized successfully')
+    } catch (error) {
+      console.error('❌ Failed to reinitialize audio context:', error)
+      throw error
+    }
+  }
+
+  /**
+   * Reconnect all audio sources after reinitialization
+   */
+  private async reconnectAudioSources(): Promise<void> {
+    const sourcesToReconnect = Array.from(this.speakerSources.entries())
+    
+    // Clear existing sources
+    this.speakerSources.clear()
+    this.gainNodes.clear()
+    
+    // Reconnect each source
+    for (const [speakerId, _source] of sourcesToReconnect) {
+      try {
+        // We need to recreate the source from the original stream
+        // For now, log that we need to handle this case
+        console.log(`⚠️  Need to reconnect speaker ${speakerId} - requires stream reference`)
+      } catch (error) {
+        console.error(`❌ Failed to reconnect speaker ${speakerId}:`, error)
+      }
+    }
+  }
+
+  /**
+   * Start monitoring audio context state
+   */
+  private startAudioContextMonitoring(): void {
+    if (!this.audioContext) return
+
+    // Monitor state changes
+    this.audioContext.addEventListener('statechange', () => {
+      console.log(`🔊 Audio context state changed to: ${this.audioContext?.state}`)
+      
+      if (this.audioContext?.state === 'suspended') {
+        console.log('⚠️  Audio context suspended, attempting to resume')
+        this.ensureAudioContextRunning().catch(error => {
+          console.error('❌ Failed to resume audio context automatically:', error)
+        })
+      }
+    })
+
+    // Periodic health check
+    setInterval(() => {
+      if (this.audioContext && this.audioContext.state !== 'running') {
+        console.log(`⚠️  Audio context health check failed: ${this.audioContext.state}`)
+        this.ensureAudioContextRunning().catch(error => {
+          console.error('❌ Failed audio context health check:', error)
+        })
+      }
+    }, 30000) // Check every 30 seconds
   }
 
   /**

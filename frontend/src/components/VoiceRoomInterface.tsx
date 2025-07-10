@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { FiMic, FiUsers, FiX, FiVolume2 } from 'react-icons/fi';
 import { useChatStore } from '../store/chatStore';
 import { ConnectionStatus, VoiceRoomRole, VoiceRoomState } from '../types';
@@ -20,6 +20,8 @@ const VoiceRoomInterface: React.FC = () => {
   } = useChatStore();
   
   const [audioEnabled, setAudioEnabled] = useState(false);
+  const [autoAudioAttempted, setAutoAudioAttempted] = useState(false);
+  const interactionHandledRef = useRef(false);
 
   // For demo purposes, create mock voice room state if backend isn't available
   const [mockVoiceRoomState] = useState<VoiceRoomState>(() => ({
@@ -110,6 +112,63 @@ const VoiceRoomInterface: React.FC = () => {
   // Use the actual voice room state if available, otherwise use mock data
   const effectiveVoiceRoomState = voiceRoomState || mockVoiceRoomState;
 
+  // Automatic audio activation effect
+  useEffect(() => {
+    const attemptAutoAudio = async () => {
+      if (autoAudioAttempted || !voiceRoomManager) return;
+      
+      try {
+        setAutoAudioAttempted(true);
+        console.log('Attempting automatic audio activation');
+        
+        // Try to enable audio automatically
+        if (typeof voiceRoomManager.resumeAudioPlayback === 'function') {
+          await voiceRoomManager.resumeAudioPlayback();
+          setAudioEnabled(true);
+          console.log('Audio enabled automatically');
+        }
+      } catch (error) {
+        console.log('Automatic audio activation failed (expected in some browsers):', error);
+        // This is expected in many browsers due to autoplay policies
+        // We'll handle this with user interaction
+      }
+    };
+
+    attemptAutoAudio();
+  }, [voiceRoomManager, autoAudioAttempted]);
+
+  // Handle user interaction for audio activation
+  useEffect(() => {
+    const handleUserInteraction = async () => {
+      if (interactionHandledRef.current || audioEnabled) return;
+      
+      try {
+        interactionHandledRef.current = true;
+        console.log('User interaction detected, enabling audio');
+        
+        if (voiceRoomManager && typeof voiceRoomManager.resumeAudioPlayback === 'function') {
+          await voiceRoomManager.resumeAudioPlayback();
+          setAudioEnabled(true);
+          console.log('Audio enabled via user interaction');
+        }
+      } catch (error) {
+        console.error('Failed to enable audio on user interaction:', error);
+      }
+    };
+
+    // Add event listeners for user interaction
+    const events = ['click', 'touchstart', 'keydown'];
+    events.forEach(event => {
+      document.addEventListener(event, handleUserInteraction, { once: true });
+    });
+
+    return () => {
+      events.forEach(event => {
+        document.removeEventListener(event, handleUserInteraction);
+      });
+    };
+  }, [voiceRoomManager, audioEnabled]);
+
   // Use mock data for demo (remove when backend is connected)
 
   // Handle disconnect
@@ -122,21 +181,6 @@ const VoiceRoomInterface: React.FC = () => {
   // Handle request to speak
   const handleRequestToSpeak = () => {
     requestSpeakerRole();
-  };
-  
-  // Handle enable audio
-  const handleEnableAudio = async () => {
-    try {
-      if (voiceRoomManager && typeof voiceRoomManager.resumeAudioPlayback === 'function') {
-        await voiceRoomManager.resumeAudioPlayback();
-        setAudioEnabled(true);
-        console.log('Audio enabled successfully');
-      } else {
-        console.warn('Voice room manager not available or method not found');
-      }
-    } catch (error) {
-      console.error('Failed to enable audio:', error);
-    }
   };
 
   // Check if current user is a speaker
@@ -271,22 +315,19 @@ const VoiceRoomInterface: React.FC = () => {
             />
           </div>
 
-          {/* Audio Enable Button */}
-          {!audioEnabled && (
-            <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-center">
+          {/* Audio Enable Button - Only show if auto-activation failed */}
+          {!audioEnabled && autoAudioAttempted && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-center">
               <div className="flex items-center justify-center space-x-2 mb-2">
-                <FiVolume2 className="w-5 h-5 text-yellow-600" />
-                <span className="text-yellow-800 font-medium">Enable Audio</span>
+                <FiVolume2 className="w-5 h-5 text-blue-600" />
+                <span className="text-blue-800 font-medium">Audio Not Active</span>
               </div>
-              <p className="text-sm text-yellow-700 mb-3">
-                Click to enable audio and hear other participants
+              <p className="text-sm text-blue-700 mb-3">
+                Click anywhere to enable audio and hear other participants
               </p>
-              <button
-                onClick={handleEnableAudio}
-                className="bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 transition-colors"
-              >
-                Enable Audio
-              </button>
+              <div className="text-xs text-blue-600">
+                Audio will enable automatically on your next interaction
+              </div>
             </div>
           )}
           

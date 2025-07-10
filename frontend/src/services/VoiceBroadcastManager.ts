@@ -38,6 +38,7 @@ export class VoiceBroadcastManager {
     };
 
     this.setupSocketHandlers();
+    this.startConnectionHealthMonitoring();
   }
 
   private setupSocketHandlers(): void {
@@ -291,11 +292,17 @@ export class VoiceBroadcastManager {
       }
     };
 
-    // Handle connection state changes
+    // Handle connection state changes with retry logic
     connection.onconnectionstatechange = () => {
       console.log(`Connection to ${listenerId}: ${connection.connectionState}`);
-      if (connection.connectionState === 'failed' || connection.connectionState === 'disconnected') {
+      if (connection.connectionState === 'failed') {
+        console.log(`Connection to ${listenerId} failed, attempting recovery`);
+        this.attemptConnectionRecovery(listenerId);
+      } else if (connection.connectionState === 'disconnected') {
+        console.log(`Connection to ${listenerId} disconnected`);
         this.removePeer(listenerId);
+      } else if (connection.connectionState === 'connected') {
+        console.log(`Connection to ${listenerId} established successfully`);
       }
     };
 
@@ -348,11 +355,17 @@ export class VoiceBroadcastManager {
         }
       };
 
-          // Handle connection state changes
+          // Handle connection state changes with retry logic
       connection.onconnectionstatechange = () => {
         console.log(`Connection to speaker ${speakerId}: ${connection.connectionState}`);
-        if (connection.connectionState === 'failed' || connection.connectionState === 'disconnected') {
+        if (connection.connectionState === 'failed') {
+          console.log(`Connection to speaker ${speakerId} failed, attempting recovery`);
+          this.attemptConnectionRecovery(speakerId);
+        } else if (connection.connectionState === 'disconnected') {
+          console.log(`Connection to speaker ${speakerId} disconnected`);
           this.removePeer(speakerId);
+        } else if (connection.connectionState === 'connected') {
+          console.log(`Connection to speaker ${speakerId} established successfully`);
         }
       };
 
@@ -422,10 +435,33 @@ export class VoiceBroadcastManager {
     try {
       console.log('Setting up audio mixing for listener');
       
-      this.state.audioContext = new AudioContext();
+      // Create audio context with error handling
+      if (!this.state.audioContext || this.state.audioContext.state === 'closed') {
+        this.state.audioContext = new AudioContext();
+        
+        // Set up error handling for audio context
+        this.state.audioContext.addEventListener('statechange', () => {
+          console.log(`Audio context state changed to: ${this.state.audioContext?.state}`);
+        });
+      }
+      
+      // Ensure audio context is running
+      await this.ensureAudioContextRunning();
+      
       this.state.mixedAudioDestination = this.state.audioContext.createMediaStreamDestination();
       
-      // Create audio element for playback
+      // Create audio element for playback with enhanced error handling
+      if (this.state.audioElement) {
+        // Clean up existing audio element
+        try {
+          this.state.audioElement.pause();
+          this.state.audioElement.srcObject = null;
+          document.body.removeChild(this.state.audioElement);
+        } catch (cleanupError) {
+          console.warn('Error cleaning up previous audio element:', cleanupError);
+        }
+      }
+      
       this.state.audioElement = document.createElement('audio');
       this.state.audioElement.autoplay = false;
       this.state.audioElement.controls = false;
@@ -437,11 +473,26 @@ export class VoiceBroadcastManager {
       this.state.audioElement.setAttribute('playsinline', 'true');
       this.state.audioElement.setAttribute('webkit-playsinline', 'true');
       
+      // Add comprehensive error handling
+      this.state.audioElement.addEventListener('error', async (error) => {
+        console.error('Audio element error:', error);
+        await this.handleAudioContextError(error);
+      });
+      
+      this.state.audioElement.addEventListener('abort', () => {
+        console.warn('Audio playback aborted');
+      });
+      
+      this.state.audioElement.addEventListener('stalled', () => {
+        console.warn('Audio playback stalled');
+      });
+      
       document.body.appendChild(this.state.audioElement);
       
       console.log('Audio mixing setup complete');
     } catch (error) {
       console.error('Failed to setup audio mixing:', error);
+      await this.handleAudioContextError(error);
       throw error;
     }
   }
@@ -458,8 +509,15 @@ export class VoiceBroadcastManager {
       
       this.state.speakerStreams.set(speakerId, stream);
 
-      // Add to audio mixing if we're a listener
+      // Add to audio mixing if we're a listener AND this is NOT our own stream
       if (this.state.role === 'listener' && this.state.audioContext && this.state.mixedAudioDestination) {
+        // Skip our own stream to prevent hearing ourselves
+        if (speakerId === this.socket.id) {
+          console.log(`Skipping own stream ${speakerId} to prevent self-hearing`);
+          this.emitStateChange();
+          return;
+        }
+        
         // Ensure audio context is running
         await this.ensureAudioContextRunning();
         
@@ -546,7 +604,7 @@ export class VoiceBroadcastManager {
   }
 
   /**
-   * Start playing the mixed audio stream
+   * Start playing the mixed audio stream with enhanced error handling
    */
   private async startMixedAudioPlayback(): Promise<void> {
     if (!this.state.audioElement || !this.state.mixedAudioDestination) {
@@ -565,18 +623,46 @@ export class VoiceBroadcastManager {
 
       console.log('Starting mixed audio playback');
       
+      // Ensure audio context is running before attempting playback
+      await this.ensureAudioContextRunning();
+      
       // Set up the audio element
       this.state.audioElement.srcObject = this.state.mixedAudioDestination.stream;
       
       // Monitor playback
       this.setupAudioPlaybackMonitoring();
       
-      // Try to play
-      await this.state.audioElement.play();
-      console.log('Mixed audio playback started successfully');
+      // Try to play with retry logic
+      let retryCount = 0;
+      const maxRetries = 3;
+      let lastError: any = null;
+      
+      while (retryCount < maxRetries) {
+        try {
+          await this.state.audioElement.play();
+          console.log('Mixed audio playback started successfully');
+          return;
+        } catch (playError) {
+          lastError = playError;
+          retryCount++;
+          console.warn(`Audio playback attempt ${retryCount} failed:`, playError);
+          
+          if (retryCount < maxRetries) {
+            // Wait before retry
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            // Try to resume audio context again
+            await this.ensureAudioContextRunning();
+          }
+        }
+      }
+      
+      // If all retries failed, throw the last error
+      throw lastError;
       
     } catch (error) {
       console.error('Failed to start mixed audio playback:', error);
+      await this.handleAudioContextError(error);
       
       // Try fallback approach
       await this.fallbackAudioPlayback();
@@ -662,7 +748,13 @@ export class VoiceBroadcastManager {
     try {
       console.log('Force starting audio playback');
       await this.ensureAudioContextRunning();
-      await this.startMixedAudioPlayback();
+      
+      // Only start mixed audio playback if we're a listener
+      if (this.state.role === 'listener') {
+        await this.startMixedAudioPlayback();
+      }
+      
+      console.log('Audio playback force started successfully');
     } catch (error) {
       console.error('Failed to force start audio playback:', error);
     }
@@ -687,6 +779,84 @@ export class VoiceBroadcastManager {
 
   get mixedAudioStream(): MediaStream | undefined {
     return this.state.mixedAudioDestination?.stream;
+  }
+
+  /**
+   * Attempt to recover a failed connection
+   */
+  private async attemptConnectionRecovery(peerId: string): Promise<void> {
+    try {
+      console.log(`Attempting to recover connection to ${peerId}`);
+      
+      const peer = this.state.remotePeers.get(peerId);
+      if (!peer) {
+        console.log(`No peer found for ${peerId}, cannot recover`);
+        return;
+      }
+
+      // Wait a moment before retrying
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Check if the connection is still failed
+      if (peer.connection.connectionState === 'failed') {
+        console.log(`Recreating connection to ${peerId}`);
+        
+        // Remove the failed peer
+        this.removePeer(peerId);
+        
+        // If we're a speaker, try to recreate the connection
+        if (this.state.role === 'speaker') {
+          await this.createSpeakerConnection(peerId);
+        }
+      }
+    } catch (error) {
+      console.error(`Failed to recover connection to ${peerId}:`, error);
+      // If recovery fails, remove the peer
+      this.removePeer(peerId);
+    }
+  }
+
+  /**
+   * Monitor connection health and prevent users from dropping
+   */
+  private startConnectionHealthMonitoring(): void {
+    // Check connection health every 30 seconds
+    setInterval(() => {
+      this.checkConnectionHealth();
+    }, 30000);
+  }
+
+  /**
+   * Check the health of all connections
+   */
+  private checkConnectionHealth(): void {
+    this.state.remotePeers.forEach((peer, peerId) => {
+      const connectionState = peer.connection.connectionState;
+      console.log(`Connection health check for ${peerId}: ${connectionState}`);
+      
+      if (connectionState === 'failed' || connectionState === 'disconnected') {
+        console.log(`Unhealthy connection detected for ${peerId}, attempting recovery`);
+        this.attemptConnectionRecovery(peerId);
+      }
+    });
+  }
+
+  /**
+   * Enhanced error handling for audio context issues
+   */
+  private async handleAudioContextError(error: any): Promise<void> {
+    console.error('Audio context error detected:', error);
+    
+    try {
+      // Try to resume audio context if suspended
+      if (this.state.audioContext && this.state.audioContext.state === 'suspended') {
+        console.log('Attempting to resume suspended audio context');
+        await this.state.audioContext.resume();
+        console.log('Audio context resumed successfully');
+      }
+    } catch (resumeError) {
+      console.error('Failed to resume audio context:', resumeError);
+    }
   }
 
   // Cleanup method
