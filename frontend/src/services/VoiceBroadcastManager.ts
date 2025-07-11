@@ -99,11 +99,15 @@ export class VoiceBroadcastManager {
    */
   async startSpeaking(listenerIds: string[]): Promise<void> {
     try {
+      console.log('🎤 [WEBRTC] Starting to speak...');
+      console.log(`🎤 [WEBRTC] Target peer IDs:`, listenerIds);
+      
       if (this.state.isActive) {
         throw new Error('Already broadcasting');
       }
 
       // Get user media
+      console.log('🎤 [WEBRTC] Requesting microphone access...');
       this.state.localStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -112,21 +116,25 @@ export class VoiceBroadcastManager {
           sampleRate: 48000
         }
       });
+      console.log('🎤 [WEBRTC] Microphone access granted, stream:', this.state.localStream);
 
       this.state.role = 'speaker';
       this.state.isActive = true;
 
       // Setup audio mixing for speakers too (to hear other speakers)
+      console.log('🎤 [WEBRTC] Setting up audio mixing...');
       await this.setupAudioMixing();
 
       // Create connections to all listeners
+      console.log(`🎤 [WEBRTC] Creating WebRTC connections to ${listenerIds.length} peers...`);
       for (const listenerId of listenerIds) {
+        console.log(`🎤 [WEBRTC] Creating connection to peer: ${listenerId}`);
         await this.createSpeakerConnection(listenerId);
       }
 
-      console.log(`Started broadcasting to ${listenerIds.length} listeners`);
+      console.log(`✅ [WEBRTC] Started broadcasting to ${listenerIds.length} peers`);
     } catch (error) {
-      console.error('Failed to start speaking:', error);
+      console.error('❌ [WEBRTC] Failed to start speaking:', error);
       await this.stopSpeaking();
       throw error;
     }
@@ -167,7 +175,10 @@ export class VoiceBroadcastManager {
    */
   async startListening(speakerIds: string[]): Promise<void> {
     try {
+      console.log('🎧 [WEBRTC] startListening() called with speaker IDs:', speakerIds);
+      
       if (this.state.isActive) {
+        console.log('🎧 [WEBRTC] Already listening, current state:', this.state);
         throw new Error('Already listening');
       }
 
@@ -175,14 +186,16 @@ export class VoiceBroadcastManager {
       this.state.isActive = true;
 
       // Setup audio mixing
+      console.log('🎧 [WEBRTC] Setting up audio mixing for listening...');
       await this.setupAudioMixing();
 
       // Notify server that we're ready to receive
+      console.log('🎧 [WEBRTC] Emitting ready_to_listen to server...');
       this.socket.emit('ready_to_listen', { speakerIds });
 
-      console.log(`Started listening to ${speakerIds.length} speakers`);
+      console.log(`✅ [WEBRTC] Started listening to ${speakerIds.length} speakers`);
     } catch (error) {
-      console.error('Failed to start listening:', error);
+      console.error('❌ [WEBRTC] Failed to start listening:', error);
       await this.stopListening();
       throw error;
     }
@@ -276,36 +289,48 @@ export class VoiceBroadcastManager {
   }
 
   private async createSpeakerConnection(listenerId: string): Promise<void> {
+    console.log(`🔗 [WEBRTC] Creating peer connection to ${listenerId}`);
+    
     const connection = new RTCPeerConnection({ iceServers: this.iceServers });
+    console.log(`🔗 [WEBRTC] RTCPeerConnection created for ${listenerId}`);
     
     // Add local stream to connection
     if (this.state.localStream) {
+      console.log(`🔗 [WEBRTC] Adding local stream tracks to connection for ${listenerId}`);
       this.state.localStream.getTracks().forEach(track => {
+        console.log(`🔗 [WEBRTC] Adding track ${track.kind} to ${listenerId}:`, track);
         connection.addTrack(track, this.state.localStream!);
       });
+    } else {
+      console.warn(`⚠️ [WEBRTC] No local stream available to add to connection for ${listenerId}`);
     }
 
     // Handle ICE candidates
     connection.onicecandidate = (event) => {
       if (event.candidate) {
+        console.log(`🧊 [WEBRTC] Sending ICE candidate to ${listenerId}:`, event.candidate);
         this.socket.emit('broadcast_ice_candidate', {
           candidate: event.candidate,
           peerId: listenerId
         });
+      } else {
+        console.log(`🧊 [WEBRTC] ICE candidate gathering complete for ${listenerId}`);
       }
     };
 
     // Handle connection state changes with retry logic
     connection.onconnectionstatechange = () => {
-      console.log(`Connection to ${listenerId}: ${connection.connectionState}`);
+      console.log(`📡 [WEBRTC] Connection to ${listenerId}: ${connection.connectionState}`);
       if (connection.connectionState === 'failed') {
-        console.log(`Connection to ${listenerId} failed, attempting recovery`);
+        console.error(`❌ [WEBRTC] Connection to ${listenerId} failed, attempting recovery`);
         this.attemptConnectionRecovery(listenerId);
       } else if (connection.connectionState === 'disconnected') {
-        console.log(`Connection to ${listenerId} disconnected`);
+        console.warn(`⚠️ [WEBRTC] Connection to ${listenerId} disconnected`);
         this.removePeer(listenerId);
       } else if (connection.connectionState === 'connected') {
-        console.log(`Connection to ${listenerId} established successfully`);
+        console.log(`✅ [WEBRTC] Connection to ${listenerId} established successfully`);
+      } else if (connection.connectionState === 'connecting') {
+        console.log(`⏳ [WEBRTC] Connecting to ${listenerId}...`);
       }
     };
 
@@ -318,14 +343,17 @@ export class VoiceBroadcastManager {
     });
 
     // Create and send offer
+    console.log(`📤 [WEBRTC] Creating offer for ${listenerId}`);
     const offer = await connection.createOffer();
     await connection.setLocalDescription(offer);
+    console.log(`📤 [WEBRTC] Sending offer to ${listenerId}:`, offer);
     
     this.socket.emit('broadcast_offer', {
       offer,
       listenerId,
       speakerId: this.socket.id
     });
+    console.log(`📤 [WEBRTC] Offer sent to ${listenerId} via socket`);
   }
 
   private async handleBroadcastOffer(
@@ -334,41 +362,55 @@ export class VoiceBroadcastManager {
     speakerUsername: string
   ): Promise<void> {
     try {
+      console.log(`📥 [WEBRTC] Received offer from speaker ${speakerUsername} (${speakerId}):`, offer);
+      
       const connection = new RTCPeerConnection({ iceServers: this.iceServers });
+      console.log(`🔗 [WEBRTC] Created peer connection for incoming offer from ${speakerId}`);
 
       // Handle incoming stream
       connection.ontrack = async (event) => {
-        console.log(`Received track from speaker ${speakerId}:`, event.track);
+        console.log(`🎵 [WEBRTC] Received track from speaker ${speakerId} (${speakerUsername}):`, event.track);
         const [stream] = event.streams;
         if (stream) {
-          console.log(`Received stream from speaker ${speakerId}`, stream);
+          console.log(`🎵 [WEBRTC] Received audio stream from speaker ${speakerId}:`, stream);
+          console.log(`🎵 [WEBRTC] Stream tracks:`, stream.getTracks().map(t => ({
+            id: t.id,
+            kind: t.kind,
+            enabled: t.enabled,
+            readyState: t.readyState
+          })));
           await this.addSpeakerStream(speakerId, stream);
         } else {
-          console.warn(`No stream received from speaker ${speakerId}`);
+          console.warn(`⚠️ [WEBRTC] No stream received from speaker ${speakerId}`);
         }
       };
 
       // Handle ICE candidates
       connection.onicecandidate = (event) => {
         if (event.candidate) {
+          console.log(`🧊 [WEBRTC] Sending ICE candidate to speaker ${speakerId}:`, event.candidate);
           this.socket.emit('broadcast_ice_candidate', {
             candidate: event.candidate,
             peerId: speakerId
           });
+        } else {
+          console.log(`🧊 [WEBRTC] ICE candidate gathering complete for speaker ${speakerId}`);
         }
       };
 
-          // Handle connection state changes with retry logic
+      // Handle connection state changes with retry logic
       connection.onconnectionstatechange = () => {
-        console.log(`Connection to speaker ${speakerId}: ${connection.connectionState}`);
+        console.log(`📡 [WEBRTC] Connection to speaker ${speakerId} (${speakerUsername}): ${connection.connectionState}`);
         if (connection.connectionState === 'failed') {
-          console.log(`Connection to speaker ${speakerId} failed, attempting recovery`);
+          console.error(`❌ [WEBRTC] Connection to speaker ${speakerId} failed, attempting recovery`);
           this.attemptConnectionRecovery(speakerId);
         } else if (connection.connectionState === 'disconnected') {
-          console.log(`Connection to speaker ${speakerId} disconnected`);
+          console.warn(`⚠️ [WEBRTC] Connection to speaker ${speakerId} disconnected`);
           this.removePeer(speakerId);
         } else if (connection.connectionState === 'connected') {
-          console.log(`Connection to speaker ${speakerId} established successfully`);
+          console.log(`✅ [WEBRTC] Connection to speaker ${speakerId} established successfully`);
+        } else if (connection.connectionState === 'connecting') {
+          console.log(`⏳ [WEBRTC] Connecting to speaker ${speakerId}...`);
         }
       };
 
@@ -381,9 +423,12 @@ export class VoiceBroadcastManager {
       });
 
       // Set remote description and create answer
+      console.log(`📥 [WEBRTC] Setting remote description for ${speakerId}`);
       await connection.setRemoteDescription(offer);
+      console.log(`📤 [WEBRTC] Creating answer for ${speakerId}`);
       const answer = await connection.createAnswer();
       await connection.setLocalDescription(answer);
+      console.log(`📤 [WEBRTC] Sending answer to ${speakerId}:`, answer);
 
       // Send answer
       this.socket.emit('broadcast_answer', {
@@ -391,9 +436,10 @@ export class VoiceBroadcastManager {
         speakerId,
         listenerId: this.socket.id
       });
+      console.log(`📤 [WEBRTC] Answer sent to ${speakerId} via socket`);
 
     } catch (error) {
-      console.error('Error handling broadcast offer:', error);
+      console.error(`❌ [WEBRTC] Error handling broadcast offer from ${speakerId}:`, error);
       throw error;
     }
   }
@@ -403,16 +449,19 @@ export class VoiceBroadcastManager {
     listenerId: string
   ): Promise<void> {
     try {
+      console.log(`📥 [WEBRTC] Received answer from peer ${listenerId}:`, answer);
+      
       const peer = this.state.remotePeers.get(listenerId);
       if (!peer) {
-        console.warn(`No peer connection found for listener ${listenerId}`);
+        console.warn(`⚠️ [WEBRTC] No peer connection found for peer ${listenerId} when handling answer`);
         return;
       }
 
+      console.log(`📥 [WEBRTC] Setting remote description for peer ${listenerId}`);
       await peer.connection.setRemoteDescription(answer);
-      console.log(`Set remote description for listener ${listenerId}`);
+      console.log(`✅ [WEBRTC] Remote description set for peer ${listenerId}`);
     } catch (error) {
-      console.error('Error handling broadcast answer:', error);
+      console.error(`❌ [WEBRTC] Error handling broadcast answer from ${listenerId}:`, error);
       throw error;
     }
   }
@@ -422,15 +471,19 @@ export class VoiceBroadcastManager {
     peerId: string
   ): Promise<void> {
     try {
+      console.log(`🧊 [WEBRTC] Received ICE candidate from peer ${peerId}:`, candidate);
+      
       const peer = this.state.remotePeers.get(peerId);
       if (!peer) {
-        console.warn(`No peer connection found for ${peerId}`);
+        console.warn(`⚠️ [WEBRTC] No peer connection found for peer ${peerId} when handling ICE candidate`);
         return;
       }
 
+      console.log(`🧊 [WEBRTC] Adding ICE candidate for peer ${peerId}`);
       await peer.connection.addIceCandidate(candidate);
+      console.log(`✅ [WEBRTC] ICE candidate added for peer ${peerId}`);
     } catch (error) {
-      console.error('Error handling ICE candidate:', error);
+      console.error(`❌ [WEBRTC] Error handling ICE candidate from ${peerId}:`, error);
     }
   }
 
@@ -502,8 +555,8 @@ export class VoiceBroadcastManager {
 
   private async addSpeakerStream(speakerId: string, stream: MediaStream): Promise<void> {
     try {
-      console.log(`Adding speaker ${speakerId} stream to broadcast manager`);
-      console.log('Stream tracks:', stream.getTracks().map(t => ({
+      console.log(`🎵 [AUDIO] Adding speaker ${speakerId} stream to broadcast manager`);
+      console.log(`🎵 [AUDIO] Stream tracks:`, stream.getTracks().map(t => ({
         id: t.id,
         kind: t.kind,
         enabled: t.enabled,
@@ -514,13 +567,14 @@ export class VoiceBroadcastManager {
 
       // Always skip our own stream to prevent self-hearing
       if (speakerId === this.socket.id) {
-        console.log(`Skipping own stream ${speakerId} to prevent self-hearing`);
+        console.log(`🔇 [AUDIO] Skipping own stream ${speakerId} to prevent self-hearing`);
         this.emitStateChange();
         return;
       }
 
       // Add to audio mixing for both listeners and speakers (but not our own stream)
       if (this.state.audioContext && this.state.mixedAudioDestination) {
+        console.log(`🎵 [AUDIO] Adding remote speaker ${speakerId} to audio mixer`);
         
         // Ensure audio context is running
         await this.ensureAudioContextRunning();
@@ -530,23 +584,29 @@ export class VoiceBroadcastManager {
         
         // Set equal volume for both speakers
         gainNode.gain.value = 0.5;
+        console.log(`🎵 [AUDIO] Created audio nodes for speaker ${speakerId}, gain: ${gainNode.gain.value}`);
         
         // Store gain node for later reference
         this.state.gainNodes.set(speakerId, gainNode);
         
         source.connect(gainNode);
         gainNode.connect(this.state.mixedAudioDestination);
+        console.log(`🎵 [AUDIO] Connected speaker ${speakerId} to audio mixer destination`);
         
-        console.log(`Added speaker ${speakerId} to audio mix`);
+        console.log(`✅ [AUDIO] Added speaker ${speakerId} to audio mix`);
         
         // Start playing the mixed audio
+        console.log(`🔊 [AUDIO] Starting mixed audio playback for speaker ${speakerId}`);
         await this.startMixedAudioPlayback();
+      } else {
+        console.warn(`⚠️ [AUDIO] Cannot add speaker ${speakerId} to mixer - audio context or destination missing`);
+        console.warn(`⚠️ [AUDIO] Audio context: ${!!this.state.audioContext}, Destination: ${!!this.state.mixedAudioDestination}`);
       }
 
       // Emit event for UI updates
       this.emitStateChange();
     } catch (error) {
-      console.error('Error adding speaker stream:', error);
+      console.error(`❌ [AUDIO] Error adding speaker ${speakerId} stream:`, error);
     }
   }
 

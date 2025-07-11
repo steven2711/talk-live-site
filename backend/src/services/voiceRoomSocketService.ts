@@ -9,7 +9,10 @@ import type {
   InterServerEvents, 
   SocketData,
   User,
-  VoiceRoomState
+  VoiceRoomState,
+  WebRTCOfferData,
+  WebRTCAnswerData,
+  WebRTCIceCandidateData
 } from '../types/index.js'
 import { VoiceRoomRole, MessageType } from '../types/index.js'
 import { ConnectionStatus } from '../types/index.js'
@@ -241,6 +244,134 @@ export function setupVoiceRoomSocketHandlers(io: TypedServer, voiceRoomManager: 
         }
       } catch (error) {
         logger.error(`Error handling voice room heartbeat: ${error}`)
+      }
+    })
+
+    // Handle audio level updates (broadcast to all other users in the room)
+    socket.on('send_audio_level', (audioLevel: number) => {
+      try {
+        const user = socket.data.user
+        if (!user) {
+          logger.warn('Audio level received from unauthenticated user')
+          return
+        }
+
+        const userStatus = voiceRoomManager.getUserVoiceStatus(user.id)
+        if (!userStatus) {
+          logger.warn(`Audio level received from user ${user.id} not in voice room`)
+          return
+        }
+
+        // Update audio level in voice room manager
+        voiceRoomManager.updateAudioLevel(user.id, audioLevel)
+
+        // Broadcast audio level to all OTHER users in the voice room
+        socket.to('voice_room').emit('audio_level_update', {
+          userId: user.id,
+          audioLevel,
+          timestamp: new Date()
+        })
+
+        logger.debug(`Audio level ${audioLevel} broadcast from user ${user.username}`)
+
+      } catch (error) {
+        logger.error(`Error handling audio level update: ${error}`)
+      }
+    })
+
+    // ===== WebRTC Signaling Handlers =====
+    
+    // Handle WebRTC offer (Speaker → Listener/Speaker)
+    socket.on('broadcast_offer', (data: WebRTCOfferData) => {
+      try {
+        const user = socket.data.user
+        if (!user) {
+          logger.warn('WebRTC offer received from unauthenticated user')
+          return
+        }
+
+        logger.debug(`WebRTC offer from ${user.username} (${user.id}) to ${data.listenerId}`)
+
+        // Find the target user's socket
+        const targetUser = Array.from(io.sockets.sockets.values())
+          .find(s => s.data.user?.id === data.listenerId)
+
+        if (targetUser) {
+          // Forward the offer to the target user
+          targetUser.emit('broadcast_offer', {
+            offer: data.offer,
+            speakerId: user.id,
+            speakerUsername: user.username
+          })
+          logger.debug(`WebRTC offer forwarded to ${data.listenerId}`)
+        } else {
+          logger.warn(`Target user ${data.listenerId} not found for WebRTC offer`)
+        }
+
+      } catch (error) {
+        logger.error(`Error handling WebRTC offer: ${error}`)
+      }
+    })
+
+    // Handle WebRTC answer (Listener/Speaker → Speaker)
+    socket.on('broadcast_answer', (data: WebRTCAnswerData) => {
+      try {
+        const user = socket.data.user
+        if (!user) {
+          logger.warn('WebRTC answer received from unauthenticated user')
+          return
+        }
+
+        logger.debug(`WebRTC answer from ${user.username} (${user.id}) to ${data.speakerId}`)
+
+        // Find the target speaker's socket
+        const targetUser = Array.from(io.sockets.sockets.values())
+          .find(s => s.data.user?.id === data.speakerId)
+
+        if (targetUser) {
+          // Forward the answer to the target speaker
+          targetUser.emit('broadcast_answer', {
+            answer: data.answer,
+            listenerId: user.id
+          })
+          logger.debug(`WebRTC answer forwarded to ${data.speakerId}`)
+        } else {
+          logger.warn(`Target speaker ${data.speakerId} not found for WebRTC answer`)
+        }
+
+      } catch (error) {
+        logger.error(`Error handling WebRTC answer: ${error}`)
+      }
+    })
+
+    // Handle WebRTC ICE candidates (bidirectional)
+    socket.on('broadcast_ice_candidate', (data: WebRTCIceCandidateData) => {
+      try {
+        const user = socket.data.user
+        if (!user) {
+          logger.warn('WebRTC ICE candidate received from unauthenticated user')
+          return
+        }
+
+        logger.debug(`WebRTC ICE candidate from ${user.username} (${user.id}) to ${data.peerId}`)
+
+        // Find the target peer's socket
+        const targetUser = Array.from(io.sockets.sockets.values())
+          .find(s => s.data.user?.id === data.peerId)
+
+        if (targetUser) {
+          // Forward the ICE candidate to the target peer
+          targetUser.emit('broadcast_ice_candidate', {
+            candidate: data.candidate,
+            peerId: user.id
+          })
+          logger.debug(`WebRTC ICE candidate forwarded to ${data.peerId}`)
+        } else {
+          logger.warn(`Target peer ${data.peerId} not found for WebRTC ICE candidate`)
+        }
+
+      } catch (error) {
+        logger.error(`Error handling WebRTC ICE candidate: ${error}`)
       }
     })
 

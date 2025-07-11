@@ -222,7 +222,9 @@ export class GlobalVoiceRoomManager {
    */
   async startSpeaking(): Promise<void> {
     try {
-      console.log('🎤 startSpeaking() called')
+      console.log('🎤 DEBUG: startSpeaking() called')
+      console.log('🎤 DEBUG: Current user:', this.currentUser)
+      console.log('🎤 DEBUG: Room state:', this.roomState)
 
       if (!this.roomState) {
         throw new Error('Not in a voice room')
@@ -256,7 +258,16 @@ export class GlobalVoiceRoomManager {
       // Combine listeners and other speakers for connections
       const allPeerIds = [...listenerIds, ...otherSpeakerIds]
 
+      console.log(`🔊 DEBUG: Current user ID: ${this.currentUser!.id}`)
+      console.log(`🔊 DEBUG: All speakers in room:`, this.roomState.speakers.map(s => ({ id: s.user.id, username: s.user.username })))
+      console.log(`🔊 DEBUG: Listeners:`, listenerIds)
+      console.log(`🔊 DEBUG: Other speakers:`, otherSpeakerIds) 
+      console.log(`🔊 DEBUG: All peer IDs to connect to:`, allPeerIds)
       console.log(`🔊 Connecting to ${listenerIds.length} listeners and ${otherSpeakerIds.length} other speakers`)
+
+      if (allPeerIds.length === 0) {
+        console.warn(`⚠️ No peers to connect to! Room state:`, this.roomState)
+      }
 
       // Start broadcasting to all peers (listeners + other speakers)
       await this.voiceBroadcastManager.startSpeaking(allPeerIds)
@@ -309,6 +320,9 @@ export class GlobalVoiceRoomManager {
         throw new Error('Not in a voice room')
       }
 
+      console.log('🎧 DEBUG: startListening() called')
+      console.log('🎧 DEBUG: Current user:', this.currentUser)
+      console.log('🎧 DEBUG: Room state:', this.roomState)
       console.log('Starting to listen...')
 
       // Get list of OTHER speaker IDs (excluding ourselves if we're also a speaker)
@@ -316,11 +330,15 @@ export class GlobalVoiceRoomManager {
         .filter(speaker => speaker.user.id !== this.currentUser!.id)
         .map(speaker => speaker.user.id)
 
+      console.log(`🎧 DEBUG: Other speaker IDs to listen to:`, otherSpeakerIds)
+      console.log(`🎧 DEBUG: All speakers in room:`, this.roomState.speakers.map(s => ({ id: s.user.id, username: s.user.username })))
+
       if (otherSpeakerIds.length > 0) {
+        console.log(`🎧 DEBUG: Calling voiceBroadcastManager.startListening() with IDs:`, otherSpeakerIds)
         await this.voiceBroadcastManager.startListening(otherSpeakerIds)
         console.log(`Started listening to ${otherSpeakerIds.length} other speakers`)
       } else {
-        console.log('No other speakers to listen to')
+        console.log('🎧 DEBUG: No other speakers to listen to')
       }
     } catch (error) {
       console.error('Failed to start listening:', error)
@@ -451,7 +469,16 @@ export class GlobalVoiceRoomManager {
 
       // Start listening if we're a listener OR a speaker (speakers need to hear other speakers)
       const currentRole = this.getCurrentUserRole()
+      console.log(`🎭 DEBUG: Joined voice room, current role: ${currentRole}`)
+      console.log(`🎭 DEBUG: Room state on join:`, roomState)
+      
+      if (currentRole === VoiceRoomRole.SPEAKER) {
+        console.log(`🎤 DEBUG: I'm a speaker, calling startSpeaking()`)
+        this.startSpeaking().catch(console.error)
+      }
+      
       if (currentRole === VoiceRoomRole.LISTENER || currentRole === VoiceRoomRole.SPEAKER) {
+        console.log(`👂 DEBUG: Starting to listen (role: ${currentRole})`)
         this.startListening().catch(console.error)
       }
     })
@@ -539,12 +566,12 @@ export class GlobalVoiceRoomManager {
 
       if (newRole === VoiceRoomRole.SPEAKER) {
         console.log(
-          '🎤 Role changed to SPEAKER, stopping listening and starting speaking...'
+          '🎤 DEBUG: Role changed to SPEAKER, stopping listening and starting speaking...'
         )
         await this.stopListening()
-        console.log('🎤 Starting to speak...')
+        console.log('🎤 DEBUG: Starting to speak after role change...')
         await this.startSpeaking()
-        console.log('🎤 Starting to listen to other speakers...')
+        console.log('🎤 DEBUG: Starting to listen to other speakers after role change...')
         await this.startListening()
         this.emit('speakerPromoted', this.currentUser!.id)
       } else if (newRole === VoiceRoomRole.LISTENER) {

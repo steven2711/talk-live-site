@@ -103,6 +103,36 @@ export interface VoiceRoomBroadcastMessage {
   toUserId?: string
 }
 
+// WebRTC Types (for Node.js backend compatibility)
+export interface RTCSessionDescriptionInit {
+  type: 'offer' | 'answer' | 'pranswer' | 'rollback'
+  sdp?: string
+}
+
+export interface RTCIceCandidateInit {
+  candidate?: string
+  sdpMLineIndex?: number | null
+  sdpMid?: string | null
+  usernameFragment?: string | null
+}
+
+export interface WebRTCOfferData {
+  offer: RTCSessionDescriptionInit
+  listenerId: string
+  speakerId: string
+}
+
+export interface WebRTCAnswerData {
+  answer: RTCSessionDescriptionInit
+  speakerId: string
+  listenerId: string
+}
+
+export interface WebRTCIceCandidateData {
+  candidate: RTCIceCandidateInit
+  peerId: string
+}
+
 
 
 
@@ -128,6 +158,11 @@ export interface ServerToClientEvents {
   speaker_volume_changed: (userId: string, volume: number) => void
   voice_room_broadcast_signal: (message: VoiceRoomBroadcastMessage) => void
   
+  // WebRTC signaling events
+  broadcast_offer: (data: { offer: RTCSessionDescriptionInit; speakerId: string; speakerUsername: string }) => void
+  broadcast_answer: (data: { answer: RTCSessionDescriptionInit; listenerId: string }) => void
+  broadcast_ice_candidate: (data: { candidate: RTCIceCandidateInit; peerId: string }) => void
+  
   // System events
   error: (error: string) => void
   chat_ended: () => void
@@ -152,6 +187,11 @@ export interface ClientToServerEvents {
   mute_speaker: (muted: boolean) => void
   send_audio_level: (level: number) => void
   voice_room_broadcast_signal: (message: VoiceRoomBroadcastMessage) => void
+  
+  // WebRTC signaling events
+  broadcast_offer: (data: WebRTCOfferData) => void
+  broadcast_answer: (data: WebRTCAnswerData) => void
+  broadcast_ice_candidate: (data: WebRTCIceCandidateData) => void
   
   // Heartbeat
   ping: () => void
