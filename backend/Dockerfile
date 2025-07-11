@@ -11,6 +11,9 @@ RUN npm ci
 # Build the backend
 RUN npm run build:backend
 
+# Create logs directory with proper permissions
+RUN mkdir -p logs && chown -R nodejs:nodejs logs
+
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nodejs -u 1001 && \
