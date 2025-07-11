@@ -43,6 +43,13 @@ export class VoiceBroadcastManager {
       credential: 'webrtcpassword',
     },
 
+    // TURNS server (SSL/TLS encrypted) for restrictive networks
+    {
+      urls: 'turns:143.110.235.225:5349',
+      username: 'webrtcuser',
+      credential: 'webrtcpassword',
+    },
+
     // Google STUN servers (backup)
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
@@ -1785,10 +1792,13 @@ export class VoiceBroadcastManager {
       // Test 3: TURN server connectivity
       await this.testTurnServers()
 
-      // Test 4: NAT type detection
+      // Test 4: TURNS server connectivity
+      await this.testTurnsServers()
+
+      // Test 5: NAT type detection
       await this.detectNatType()
 
-      // Test 5: WebRTC connectivity test
+      // Test 6: WebRTC connectivity test
       await this.testWebRTCConnectivity()
 
       console.log('✅ [NETWORK-DIAGNOSTICS] Network diagnostics complete')
@@ -1929,6 +1939,87 @@ export class VoiceBroadcastManager {
       } catch (error) {
         console.error(
           `❌ [TURN-TEST] TURN server ${turnServer.urls} failed:`,
+          error
+        )
+      }
+    }
+  }
+
+  /**
+   * Test TURNS server connectivity (SSL/TLS encrypted TURN)
+   */
+  private async testTurnsServers(): Promise<void> {
+    console.log('🔍 [TURNS-TEST] Testing TURNS server connectivity...')
+
+    const turnsServers = this.iceServers.filter(server =>
+      server.urls.toString().includes('turns:')
+    )
+
+    if (turnsServers.length === 0) {
+      console.log('ℹ️ [TURNS-TEST] No TURNS servers configured')
+      return
+    }
+
+    for (const turnsServer of turnsServers) {
+      try {
+        const startTime = Date.now()
+        const pc = new RTCPeerConnection({
+          iceServers: [turnsServer],
+          iceTransportPolicy: 'relay', // Force TURNS usage
+        })
+
+        let resolved = false
+        const timeout = setTimeout(() => {
+          if (!resolved) {
+            resolved = true
+            console.warn(
+              `⚠️ [TURNS-TEST] TURNS server ${turnsServer.urls} timeout after 15s`
+            )
+            pc.close()
+          }
+        }, 15000)
+
+        pc.onicecandidate = event => {
+          if (event.candidate && !resolved) {
+            resolved = true
+            clearTimeout(timeout)
+            const responseTime = Date.now() - startTime
+
+            // Check if this is actually a TURNS candidate
+            const candidateString = event.candidate.candidate
+            if (candidateString.includes('typ relay')) {
+              console.log(
+                `✅ [TURNS-TEST] TURNS server ${turnsServer.urls} working (${responseTime}ms)`
+              )
+              console.log(`🔍 [TURNS-TEST] TURNS candidate: ${candidateString}`)
+            } else {
+              console.warn(
+                `⚠️ [TURNS-TEST] TURNS server ${turnsServer.urls} returned non-relay candidate: ${candidateString}`
+              )
+            }
+            pc.close()
+          }
+        }
+
+        pc.onicegatheringstatechange = () => {
+          console.log(
+            `🔍 [TURNS-TEST] ICE gathering state for ${turnsServer.urls}: ${pc.iceGatheringState}`
+          )
+        }
+
+        pc.oniceconnectionstatechange = () => {
+          console.log(
+            `🔍 [TURNS-TEST] ICE connection state for ${turnsServer.urls}: ${pc.iceConnectionState}`
+          )
+        }
+
+        // Create a dummy offer to trigger ICE gathering
+        const offer = await pc.createOffer()
+        await pc.setLocalDescription(offer)
+        console.log(`🔍 [TURNS-TEST] Created offer for ${turnsServer.urls}`)
+      } catch (error) {
+        console.error(
+          `❌ [TURNS-TEST] TURNS server ${turnsServer.urls} failed:`,
           error
         )
       }
