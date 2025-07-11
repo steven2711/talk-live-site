@@ -22,9 +22,43 @@ export interface BroadcastState {
 export class VoiceBroadcastManager {
   private state: BroadcastState;
   private socket: any;
+  private userInteractionHandler?: (event: Event) => void;
   private iceServers: RTCIceServer[] = [
+    // Multiple STUN servers for better reliability
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' }
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    
+    // Multiple TURN servers for NAT traversal
+    { 
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    { 
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject', 
+      credential: 'openrelayproject'
+    },
+    { 
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject', 
+      credential: 'openrelayproject'
+    },
+    
+    // Additional reliable TURN servers
+    { 
+      urls: 'turn:relay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    { 
+      urls: 'turn:relay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
   ];
 
   constructor(socket: any) {
@@ -300,8 +334,12 @@ export class VoiceBroadcastManager {
   private async createSpeakerConnection(listenerId: string): Promise<void> {
     console.log(`🔗 [WEBRTC] Creating peer connection to ${listenerId}`);
     
-    const connection = new RTCPeerConnection({ iceServers: this.iceServers });
-    console.log(`🔗 [WEBRTC] RTCPeerConnection created for ${listenerId}`);
+    const connection = new RTCPeerConnection({ 
+      iceServers: this.iceServers,
+      iceCandidatePoolSize: 10,
+      iceTransportPolicy: 'all' // Use both STUN and TURN
+    });
+    console.log(`🔗 [WEBRTC] RTCPeerConnection created for ${listenerId} with ${this.iceServers.length} ICE servers`);
     
     // Add local stream to connection
     if (this.state.localStream) {
@@ -314,16 +352,40 @@ export class VoiceBroadcastManager {
       console.warn(`⚠️ [WEBRTC] No local stream available to add to connection for ${listenerId}`);
     }
 
-    // Handle ICE candidates
+    // Handle ICE candidates with detailed logging
     connection.onicecandidate = (event) => {
       if (event.candidate) {
-        console.log(`🧊 [WEBRTC] Sending ICE candidate to ${listenerId}:`, event.candidate);
+        console.log(`🧊 [WEBRTC] Sending ICE candidate to ${listenerId}:`, {
+          candidate: event.candidate.candidate,
+          sdpMLineIndex: event.candidate.sdpMLineIndex,
+          sdpMid: event.candidate.sdpMid
+        });
         this.socket.emit('broadcast_ice_candidate', {
           candidate: event.candidate,
           peerId: listenerId
         });
       } else {
         console.log(`🧊 [WEBRTC] ICE candidate gathering complete for ${listenerId}`);
+      }
+    };
+
+    // Handle ICE gathering state changes
+    connection.onicegatheringstatechange = () => {
+      console.log(`🧊 [WEBRTC] ICE gathering state for ${listenerId}: ${connection.iceGatheringState}`);
+    };
+
+    // Handle ICE connection state changes
+    connection.oniceconnectionstatechange = () => {
+      console.log(`🧊 [WEBRTC] ICE connection state for ${listenerId}: ${connection.iceConnectionState}`);
+      
+      if (connection.iceConnectionState === 'failed') {
+        console.error(`❌ [WEBRTC] ICE connection failed for ${listenerId}, attempting recovery`);
+        this.attemptConnectionRecovery(listenerId);
+      } else if (connection.iceConnectionState === 'disconnected') {
+        console.warn(`⚠️ [WEBRTC] ICE connection disconnected for ${listenerId}`);
+        // Don't immediately remove, might reconnect
+      } else if (connection.iceConnectionState === 'connected') {
+        console.log(`✅ [WEBRTC] ICE connection established for ${listenerId}`);
       }
     };
 
@@ -335,7 +397,12 @@ export class VoiceBroadcastManager {
         this.attemptConnectionRecovery(listenerId);
       } else if (connection.connectionState === 'disconnected') {
         console.warn(`⚠️ [WEBRTC] Connection to ${listenerId} disconnected`);
-        this.removePeer(listenerId);
+        // Wait a moment before removing to allow for reconnection
+        setTimeout(() => {
+          if (connection.connectionState === 'disconnected') {
+            this.removePeer(listenerId);
+          }
+        }, 5000);
       } else if (connection.connectionState === 'connected') {
         console.log(`✅ [WEBRTC] Connection to ${listenerId} established successfully`);
       } else if (connection.connectionState === 'connecting') {
@@ -351,18 +418,27 @@ export class VoiceBroadcastManager {
       username: '' // Will be updated from server
     });
 
-    // Create and send offer
-    console.log(`📤 [WEBRTC] Creating offer for ${listenerId}`);
-    const offer = await connection.createOffer();
-    await connection.setLocalDescription(offer);
-    console.log(`📤 [WEBRTC] Sending offer to ${listenerId}:`, offer);
-    
-    this.socket.emit('broadcast_offer', {
-      offer,
-      listenerId,
-      speakerId: this.socket.id
-    });
-    console.log(`📤 [WEBRTC] Offer sent to ${listenerId} via socket`);
+    // Create and send offer with better error handling
+    try {
+      console.log(`📤 [WEBRTC] Creating offer for ${listenerId}`);
+      const offer = await connection.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: false
+      });
+      await connection.setLocalDescription(offer);
+      console.log(`📤 [WEBRTC] Sending offer to ${listenerId}:`, offer);
+      
+      this.socket.emit('broadcast_offer', {
+        offer,
+        listenerId,
+        speakerId: this.socket.id
+      });
+      console.log(`📤 [WEBRTC] Offer sent to ${listenerId} via socket`);
+    } catch (error) {
+      console.error(`❌ [WEBRTC] Failed to create/send offer to ${listenerId}:`, error);
+      this.removePeer(listenerId);
+      throw error;
+    }
   }
 
   private async handleBroadcastOffer(
@@ -373,8 +449,12 @@ export class VoiceBroadcastManager {
     try {
       console.log(`📥 [WEBRTC] Received offer from speaker ${speakerUsername} (${speakerId}):`, offer);
       
-      const connection = new RTCPeerConnection({ iceServers: this.iceServers });
-      console.log(`🔗 [WEBRTC] Created peer connection for incoming offer from ${speakerId}`);
+      const connection = new RTCPeerConnection({ 
+        iceServers: this.iceServers,
+        iceCandidatePoolSize: 10,
+        iceTransportPolicy: 'all' // Use both STUN and TURN
+      });
+      console.log(`🔗 [WEBRTC] Created peer connection for incoming offer from ${speakerId} with ${this.iceServers.length} ICE servers`);
 
       // Handle incoming stream
       connection.ontrack = async (event) => {
@@ -394,16 +474,40 @@ export class VoiceBroadcastManager {
         }
       };
 
-      // Handle ICE candidates
+      // Handle ICE candidates with detailed logging
       connection.onicecandidate = (event) => {
         if (event.candidate) {
-          console.log(`🧊 [WEBRTC] Sending ICE candidate to speaker ${speakerId}:`, event.candidate);
+          console.log(`🧊 [WEBRTC] Sending ICE candidate to speaker ${speakerId}:`, {
+            candidate: event.candidate.candidate,
+            sdpMLineIndex: event.candidate.sdpMLineIndex,
+            sdpMid: event.candidate.sdpMid
+          });
           this.socket.emit('broadcast_ice_candidate', {
             candidate: event.candidate,
             peerId: speakerId
           });
         } else {
           console.log(`🧊 [WEBRTC] ICE candidate gathering complete for speaker ${speakerId}`);
+        }
+      };
+
+      // Handle ICE gathering state changes
+      connection.onicegatheringstatechange = () => {
+        console.log(`🧊 [WEBRTC] ICE gathering state for speaker ${speakerId}: ${connection.iceGatheringState}`);
+      };
+
+      // Handle ICE connection state changes
+      connection.oniceconnectionstatechange = () => {
+        console.log(`🧊 [WEBRTC] ICE connection state for speaker ${speakerId}: ${connection.iceConnectionState}`);
+        
+        if (connection.iceConnectionState === 'failed') {
+          console.error(`❌ [WEBRTC] ICE connection failed for speaker ${speakerId}, attempting recovery`);
+          this.attemptConnectionRecovery(speakerId);
+        } else if (connection.iceConnectionState === 'disconnected') {
+          console.warn(`⚠️ [WEBRTC] ICE connection disconnected for speaker ${speakerId}`);
+          // Don't immediately remove, might reconnect
+        } else if (connection.iceConnectionState === 'connected') {
+          console.log(`✅ [WEBRTC] ICE connection established for speaker ${speakerId}`);
         }
       };
 
@@ -415,7 +519,12 @@ export class VoiceBroadcastManager {
           this.attemptConnectionRecovery(speakerId);
         } else if (connection.connectionState === 'disconnected') {
           console.warn(`⚠️ [WEBRTC] Connection to speaker ${speakerId} disconnected`);
-          this.removePeer(speakerId);
+          // Wait a moment before removing to allow for reconnection
+          setTimeout(() => {
+            if (connection.connectionState === 'disconnected') {
+              this.removePeer(speakerId);
+            }
+          }, 5000);
         } else if (connection.connectionState === 'connected') {
           console.log(`✅ [WEBRTC] Connection to speaker ${speakerId} established successfully`);
         } else if (connection.connectionState === 'connecting') {
@@ -431,21 +540,30 @@ export class VoiceBroadcastManager {
         username: speakerUsername
       });
 
-      // Set remote description and create answer
-      console.log(`📥 [WEBRTC] Setting remote description for ${speakerId}`);
-      await connection.setRemoteDescription(offer);
-      console.log(`📤 [WEBRTC] Creating answer for ${speakerId}`);
-      const answer = await connection.createAnswer();
-      await connection.setLocalDescription(answer);
-      console.log(`📤 [WEBRTC] Sending answer to ${speakerId}:`, answer);
+      // Set remote description and create answer with better error handling
+      try {
+        console.log(`📥 [WEBRTC] Setting remote description for ${speakerId}`);
+        await connection.setRemoteDescription(offer);
+        console.log(`📤 [WEBRTC] Creating answer for ${speakerId}`);
+        const answer = await connection.createAnswer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: false
+        });
+        await connection.setLocalDescription(answer);
+        console.log(`📤 [WEBRTC] Sending answer to ${speakerId}:`, answer);
 
-      // Send answer
-      this.socket.emit('broadcast_answer', {
-        answer,
-        speakerId,
-        listenerId: this.socket.id
-      });
-      console.log(`📤 [WEBRTC] Answer sent to ${speakerId} via socket`);
+        // Send answer
+        this.socket.emit('broadcast_answer', {
+          answer,
+          speakerId,
+          listenerId: this.socket.id
+        });
+        console.log(`📤 [WEBRTC] Answer sent to ${speakerId} via socket`);
+      } catch (error) {
+        console.error(`❌ [WEBRTC] Failed to create/send answer to ${speakerId}:`, error);
+        this.removePeer(speakerId);
+        throw error;
+      }
 
     } catch (error) {
       console.error(`❌ [WEBRTC] Error handling broadcast offer from ${speakerId}:`, error);
@@ -498,21 +616,23 @@ export class VoiceBroadcastManager {
 
   private async setupAudioMixing(): Promise<void> {
     try {
-      console.log('Setting up audio mixing for listener');
+      console.log('🔊 [AUDIO-SETUP] Setting up audio mixing for listener');
       
       // Create audio context with error handling
       if (!this.state.audioContext || this.state.audioContext.state === 'closed') {
+        console.log('🔊 [AUDIO-SETUP] Creating new AudioContext');
         this.state.audioContext = new AudioContext();
         
         // Set up error handling for audio context
         this.state.audioContext.addEventListener('statechange', () => {
-          console.log(`Audio context state changed to: ${this.state.audioContext?.state}`);
+          console.log(`🔊 [AUDIO-SETUP] Audio context state changed to: ${this.state.audioContext?.state}`);
         });
       }
       
       // Ensure audio context is running
       await this.ensureAudioContextRunning();
       
+      console.log('🔊 [AUDIO-SETUP] Creating MediaStreamDestination');
       this.state.mixedAudioDestination = this.state.audioContext.createMediaStreamDestination();
       
       // Create audio element for playback with enhanced error handling
@@ -521,42 +641,69 @@ export class VoiceBroadcastManager {
         try {
           this.state.audioElement.pause();
           this.state.audioElement.srcObject = null;
-          document.body.removeChild(this.state.audioElement);
+          if (this.state.audioElement.parentNode) {
+            document.body.removeChild(this.state.audioElement);
+          }
         } catch (cleanupError) {
-          console.warn('Error cleaning up previous audio element:', cleanupError);
+          console.warn('🔊 [AUDIO-SETUP] Error cleaning up previous audio element:', cleanupError);
         }
       }
       
+      console.log('🔊 [AUDIO-SETUP] Creating audio element');
       this.state.audioElement = document.createElement('audio');
-      this.state.audioElement.autoplay = false;
+      this.state.audioElement.autoplay = false; // Will be manually controlled
       this.state.audioElement.controls = false;
       this.state.audioElement.style.display = 'none';
       this.state.audioElement.volume = 1.0;
       this.state.audioElement.muted = false;
+      this.state.audioElement.preload = 'auto';
       
       // Set attributes for better compatibility
       this.state.audioElement.setAttribute('playsinline', 'true');
       this.state.audioElement.setAttribute('webkit-playsinline', 'true');
       
-      // Add comprehensive error handling
+      // Add comprehensive event handling
+      this.state.audioElement.addEventListener('loadstart', () => {
+        console.log('🔊 [AUDIO-SETUP] Audio element started loading');
+      });
+      
+      this.state.audioElement.addEventListener('loadedmetadata', () => {
+        console.log('🔊 [AUDIO-SETUP] Audio element metadata loaded');
+      });
+      
+      this.state.audioElement.addEventListener('canplay', () => {
+        console.log('🔊 [AUDIO-SETUP] Audio element can play');
+      });
+      
+      this.state.audioElement.addEventListener('playing', () => {
+        console.log('✅ [AUDIO-SETUP] Audio element is playing');
+      });
+      
       this.state.audioElement.addEventListener('error', async (error) => {
-        console.error('Audio element error:', error);
+        console.error('❌ [AUDIO-SETUP] Audio element error:', error);
         await this.handleAudioContextError(error);
       });
       
       this.state.audioElement.addEventListener('abort', () => {
-        console.warn('Audio playback aborted');
+        console.warn('⚠️ [AUDIO-SETUP] Audio playback aborted');
       });
       
       this.state.audioElement.addEventListener('stalled', () => {
-        console.warn('Audio playback stalled');
+        console.warn('⚠️ [AUDIO-SETUP] Audio playback stalled');
+      });
+      
+      this.state.audioElement.addEventListener('pause', () => {
+        console.log('⏸️ [AUDIO-SETUP] Audio playback paused');
+      });
+      
+      this.state.audioElement.addEventListener('ended', () => {
+        console.log('🔚 [AUDIO-SETUP] Audio playback ended');
       });
       
       document.body.appendChild(this.state.audioElement);
-      
-      console.log('Audio mixing setup complete');
+      console.log('✅ [AUDIO-SETUP] Audio mixing setup complete');
     } catch (error) {
-      console.error('Failed to setup audio mixing:', error);
+      console.error('❌ [AUDIO-SETUP] Failed to setup audio mixing:', error);
       await this.handleAudioContextError(error);
       throw error;
     }
@@ -703,26 +850,27 @@ export class VoiceBroadcastManager {
    */
   private async startMixedAudioPlayback(): Promise<void> {
     if (!this.state.audioElement || !this.state.mixedAudioDestination) {
-      console.warn('Audio element or mixed audio destination not available');
+      console.warn('🔊 [AUDIO-PLAYBACK] Audio element or mixed audio destination not available');
       return;
     }
 
     try {
-      // Don't restart if already playing
+      // Don't restart if already playing the same stream
       if (this.state.audioElement.srcObject === this.state.mixedAudioDestination.stream) {
         if (!this.state.audioElement.paused) {
-          console.log('Mixed audio already playing');
+          console.log('🔊 [AUDIO-PLAYBACK] Mixed audio already playing');
           return;
         }
       }
 
-      console.log('Starting mixed audio playback');
+      console.log('🔊 [AUDIO-PLAYBACK] Starting mixed audio playback');
       
       // Ensure audio context is running before attempting playback
       await this.ensureAudioContextRunning();
       
       // Set up the audio element
       this.state.audioElement.srcObject = this.state.mixedAudioDestination.stream;
+      console.log('🔊 [AUDIO-PLAYBACK] Set audio element srcObject to mixed stream');
       
       // Monitor playback
       this.setupAudioPlaybackMonitoring();
@@ -730,17 +878,24 @@ export class VoiceBroadcastManager {
       // Try to play with retry logic
       let retryCount = 0;
       const maxRetries = 3;
-      let lastError: any = null;
       
       while (retryCount < maxRetries) {
         try {
+          console.log(`🔊 [AUDIO-PLAYBACK] Attempting to play audio (attempt ${retryCount + 1}/${maxRetries})`);
           await this.state.audioElement.play();
-          console.log('Mixed audio playback started successfully');
+          console.log('✅ [AUDIO-PLAYBACK] Mixed audio playback started successfully');
           return;
-        } catch (playError) {
-          lastError = playError;
+        } catch (playError: any) {
           retryCount++;
-          console.warn(`Audio playback attempt ${retryCount} failed:`, playError);
+          console.warn(`⚠️ [AUDIO-PLAYBACK] Audio playback attempt ${retryCount} failed:`, playError);
+          
+          // Check if this is a user interaction required error
+          if (playError?.name === 'NotAllowedError' || playError?.message?.includes('user interaction')) {
+            console.log('🔊 [AUDIO-PLAYBACK] User interaction required for audio playback');
+            // Set up user interaction handler
+            this.setupUserInteractionHandler();
+            return; // Don't retry, wait for user interaction
+          }
           
           if (retryCount < maxRetries) {
             // Wait before retry
@@ -752,11 +907,12 @@ export class VoiceBroadcastManager {
         }
       }
       
-      // If all retries failed, throw the last error
-      throw lastError;
+      // If all retries failed, set up user interaction handler
+      console.warn('🔊 [AUDIO-PLAYBACK] All retry attempts failed, setting up user interaction handler');
+      this.setupUserInteractionHandler();
       
     } catch (error) {
-      console.error('Failed to start mixed audio playback:', error);
+      console.error('❌ [AUDIO-PLAYBACK] Failed to start mixed audio playback:', error);
       await this.handleAudioContextError(error);
       
       // Try fallback approach
@@ -837,21 +993,145 @@ export class VoiceBroadcastManager {
   }
 
   /**
+   * Setup user interaction handler for audio playback
+   */
+  private setupUserInteractionHandler(): void {
+    console.log('🔊 [USER-INTERACTION] Setting up user interaction handler for audio playback');
+    
+    // Create a one-time event handler for user interaction
+    const handleUserInteraction = async (event: Event) => {
+      console.log('🔊 [USER-INTERACTION] User interaction detected:', event.type);
+      
+      try {
+        // Resume audio context and start playback
+        await this.ensureAudioContextRunning();
+        
+        if (this.state.audioElement && this.state.mixedAudioDestination) {
+          console.log('🔊 [USER-INTERACTION] Attempting to start audio playback after user interaction');
+          await this.state.audioElement.play();
+          console.log('✅ [USER-INTERACTION] Audio playback started successfully after user interaction');
+        }
+        
+        // Remove event listeners after successful playback
+        this.removeUserInteractionListeners();
+        
+      } catch (error) {
+        console.error('❌ [USER-INTERACTION] Failed to start audio playback after user interaction:', error);
+      }
+    };
+    
+    // Store the handler reference for cleanup
+    this.userInteractionHandler = handleUserInteraction;
+    
+    // Add event listeners for various user interaction types
+    const events = ['click', 'touchstart', 'touchend', 'keydown', 'mousedown'];
+    events.forEach(event => {
+      document.addEventListener(event, handleUserInteraction, { once: true, capture: true });
+    });
+    
+    // Show a visual indicator that user interaction is needed
+    this.showUserInteractionPrompt();
+  }
+
+  /**
+   * Remove user interaction listeners
+   */
+  private removeUserInteractionListeners(): void {
+    if (this.userInteractionHandler) {
+      const handler = this.userInteractionHandler;
+      const events = ['click', 'touchstart', 'touchend', 'keydown', 'mousedown'];
+      events.forEach(event => {
+        document.removeEventListener(event, handler, { capture: true });
+      });
+      this.userInteractionHandler = undefined;
+    }
+    
+    // Hide the user interaction prompt
+    this.hideUserInteractionPrompt();
+  }
+
+  /**
+   * Show user interaction prompt
+   */
+  private showUserInteractionPrompt(): void {
+    console.log('🔊 [USER-INTERACTION] Showing user interaction prompt');
+    
+    // Create a visual prompt for user interaction
+    const existingPrompt = document.getElementById('audio-interaction-prompt');
+    if (existingPrompt) {
+      existingPrompt.remove();
+    }
+    
+    const prompt = document.createElement('div');
+    prompt.id = 'audio-interaction-prompt';
+    prompt.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #007bff;
+      color: white;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      z-index: 10000;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      animation: slideIn 0.3s ease-out;
+    `;
+    
+    prompt.innerHTML = `
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span>🔊</span>
+        <span>Click to enable audio</span>
+      </div>
+    `;
+    
+    // Add animation styles
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes slideIn {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+      }
+    `;
+    document.head.appendChild(style);
+    
+    document.body.appendChild(prompt);
+    
+    // Auto-hide after 10 seconds
+    setTimeout(() => {
+      this.hideUserInteractionPrompt();
+    }, 10000);
+  }
+
+  /**
+   * Hide user interaction prompt
+   */
+  private hideUserInteractionPrompt(): void {
+    const prompt = document.getElementById('audio-interaction-prompt');
+    if (prompt) {
+      prompt.remove();
+    }
+  }
+
+  /**
    * Force start audio playback (for user interaction)
    */
   async forceStartAudioPlayback(): Promise<void> {
     try {
-      console.log('Force starting audio playback');
+      console.log('🔊 [FORCE-START] Force starting audio playback');
       await this.ensureAudioContextRunning();
       
-      // Only start mixed audio playback if we're a listener
-      if (this.state.role === 'listener') {
+      // Start mixed audio playback for both listeners and speakers
+      if (this.state.audioElement && this.state.mixedAudioDestination) {
+        console.log('🔊 [FORCE-START] Attempting to start mixed audio playback');
         await this.startMixedAudioPlayback();
       }
       
-      console.log('Audio playback force started successfully');
+      console.log('✅ [FORCE-START] Audio playback force started successfully');
     } catch (error) {
-      console.error('Failed to force start audio playback:', error);
+      console.error('❌ [FORCE-START] Failed to force start audio playback:', error);
     }
   }
 
@@ -956,10 +1236,17 @@ export class VoiceBroadcastManager {
 
   // Cleanup method
   async cleanup(): Promise<void> {
+    console.log('🔊 [CLEANUP] Cleaning up VoiceBroadcastManager');
+    
+    // Remove user interaction handlers
+    this.removeUserInteractionListeners();
+    
     if (this.state.role === 'speaker') {
       await this.stopSpeaking();
     } else {
       await this.stopListening();
     }
+    
+    console.log('✅ [CLEANUP] VoiceBroadcastManager cleanup complete');
   }
 }

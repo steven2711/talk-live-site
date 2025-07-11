@@ -60,6 +60,7 @@ interface ChatStoreState {
   setSpeakerVolume: (volume: number) => void
   muteSpeaker: (muted: boolean) => void
   sendAudioLevel: (level: number) => void
+  forceStartAudioPlayback: () => Promise<void>
 }
 
 export const useChatStore = create<ChatStoreState>((set, get) => ({
@@ -194,7 +195,11 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
 
             // Setup additional socket event handlers
             socket.on('voice_room_updated', (roomState: VoiceRoomState) => {
-              console.log('Voice room updated:', roomState)
+              console.log('🏠 Voice room updated:', roomState)
+              console.log(`🏠 Speakers: ${roomState.speakers.length}, Listeners: ${roomState.listeners.length}`)
+              roomState.speakers.forEach(speaker => {
+                console.log(`🏠 Speaker: ${speaker.user.username} (${speaker.user.id})`)
+              })
               set({ voiceRoomState: roomState })
             })
 
@@ -619,5 +624,22 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     if (!socket) return
 
     socket.emit('send_audio_level', level)
+  },
+
+  forceStartAudioPlayback: async () => {
+    const { voiceRoomManager } = get()
+    if (!voiceRoomManager) {
+      console.warn('🔊 [STORE] No voice room manager available for force start audio')
+      return
+    }
+
+    try {
+      console.log('🔊 [STORE] Force starting audio playback from store')
+      await voiceRoomManager.forceStartAudioPlayback()
+      console.log('✅ [STORE] Audio playback force started successfully')
+    } catch (error) {
+      console.error('❌ [STORE] Failed to force start audio playback:', error)
+      throw error
+    }
   },
 }))

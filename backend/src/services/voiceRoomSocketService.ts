@@ -485,6 +485,13 @@ function handleUserLeavingVoiceRoom(
 function broadcastRoomState(io: TypedServer, voiceRoomManager: GlobalVoiceRoomManager): void {
   try {
     const roomState = createVoiceRoomState(voiceRoomManager)
+    
+    // Debug logging
+    logger.info(`🏠 Broadcasting room state update: ${roomState.speakers.length} speakers, ${roomState.listeners.length} listeners`)
+    roomState.speakers.forEach(speaker => {
+      logger.info(`🏠 Speaker: ${speaker.user.username} (${speaker.user.id})`)
+    })
+    
     io.to('voice_room').emit('voice_room_updated', roomState)
     
     // Also emit queue updates

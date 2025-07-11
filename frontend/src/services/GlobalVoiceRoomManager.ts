@@ -94,6 +94,7 @@ export class GlobalVoiceRoomManager {
     // Send heartbeat every 15 seconds for better responsiveness
     this.heartbeatInterval = window.setInterval(() => {
       if (this.currentUser && this.roomState) {
+        console.log(`💓 Sending heartbeat - User ID: ${this.currentUser.id}, Socket ID: ${this.socket.id}`)
         this.socket.emit('heartbeat', {
           userId: this.currentUser.id,
           timestamp: Date.now(),
@@ -646,6 +647,10 @@ export class GlobalVoiceRoomManager {
   updateCurrentUser(user: { id: string; username: string }): void {
     console.log('🔄 Updating current user:', user)
     this.currentUser = user
+    
+    // Restart heartbeat with the correct user ID
+    this.stopHeartbeat()
+    this.startHeartbeat()
   }
 
   /**
@@ -653,7 +658,7 @@ export class GlobalVoiceRoomManager {
    */
   async resumeAudioPlayback(): Promise<void> {
     try {
-      console.log('🔊 Resuming audio playback in GlobalVoiceRoomManager')
+      console.log('🔊 [GLOBAL-AUDIO] Resuming audio playback in GlobalVoiceRoomManager')
       
       // Resume audio stream manager
       await this.audioStreamManager.resume()
@@ -666,9 +671,32 @@ export class GlobalVoiceRoomManager {
         await this.voiceBroadcastManager.forceStartAudioPlayback()
       }
       
-      console.log('✅ Audio playback resumed successfully')
+      console.log('✅ [GLOBAL-AUDIO] Audio playback resumed successfully')
     } catch (error) {
-      console.error('❌ Failed to resume audio playback:', error)
+      console.error('❌ [GLOBAL-AUDIO] Failed to resume audio playback:', error)
+      throw error
+    }
+  }
+
+  /**
+   * Force start all audio components (for user interaction in production)
+   */
+  async forceStartAudioPlayback(): Promise<void> {
+    try {
+      console.log('🔊 [GLOBAL-AUDIO] Force starting all audio components')
+      
+      // Force start audio stream manager
+      await this.audioStreamManager.resume()
+      await this.audioStreamManager.forceStartAudioPlayback()
+      
+      // Force start voice broadcast manager audio
+      if (this.voiceBroadcastManager) {
+        await this.voiceBroadcastManager.forceStartAudioPlayback()
+      }
+      
+      console.log('✅ [GLOBAL-AUDIO] All audio components force started successfully')
+    } catch (error) {
+      console.error('❌ [GLOBAL-AUDIO] Failed to force start audio components:', error)
       throw error
     }
   }
