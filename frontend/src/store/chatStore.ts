@@ -160,6 +160,38 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
               handleVoiceRoomError(error)
             })
 
+            // Listen for local audio level updates (for current user's microphone)
+            voiceRoomManager.on('audioLevelUpdate', (userId: string, audioLevel: number) => {
+              console.log(`🔊 Local audio level update: ${userId} = ${audioLevel}%`)
+              
+              // Update the current user's audio level in the room state
+              set(state => {
+                if (!state.voiceRoomState) return state
+
+                const updatedSpeakers = state.voiceRoomState.speakers.map(
+                  speaker =>
+                    speaker.user.id === userId
+                      ? { ...speaker, audioLevel }
+                      : speaker
+                )
+                
+                const updatedListeners = state.voiceRoomState.listeners.map(
+                  listener =>
+                    listener.user.id === userId
+                      ? { ...listener, audioLevel }
+                      : listener
+                )
+
+                return {
+                  voiceRoomState: {
+                    ...state.voiceRoomState,
+                    speakers: updatedSpeakers,
+                    listeners: updatedListeners,
+                  },
+                }
+              })
+            })
+
             // Setup additional socket event handlers
             socket.on('voice_room_updated', (roomState: VoiceRoomState) => {
               console.log('Voice room updated:', roomState)

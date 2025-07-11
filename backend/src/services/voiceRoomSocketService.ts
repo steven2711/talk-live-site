@@ -260,10 +260,10 @@ export function setupVoiceRoomSocketHandlers(io: TypedServer, voiceRoomManager: 
     })
   })
 
-  // Periodic cleanup and room state updates - more frequent for better user experience
+  // Improved heartbeat mechanism with balanced cleanup intervals
   setInterval(() => {
     try {
-      const removedUsers = voiceRoomManager.cleanupInactiveUsers()
+      const removedUsers = voiceRoomManager.cleanupInactiveUsers(120 * 1000) // 2 minutes inactivity
       if (removedUsers.length > 0) {
         logger.info(`Voice room service: Cleaned up ${removedUsers.length} inactive users`)
         broadcastRoomState(io, voiceRoomManager)
@@ -271,7 +271,7 @@ export function setupVoiceRoomSocketHandlers(io: TypedServer, voiceRoomManager: 
     } catch (error) {
       logger.error(`Error during voice room cleanup: ${error}`)
     }
-  }, 30 * 1000) // Run every 30 seconds for faster cleanup
+  }, 15 * 1000) // Run every 15 seconds for balanced cleanup
 
   logger.info('Voice Room Socket.IO event handlers setup complete')
 }

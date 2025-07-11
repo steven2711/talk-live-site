@@ -91,7 +91,7 @@ export class GlobalVoiceRoomManager {
 
     console.log('Starting heartbeat monitoring')
     
-    // Send heartbeat every 30 seconds
+    // Send heartbeat every 15 seconds for better responsiveness
     this.heartbeatInterval = window.setInterval(() => {
       if (this.currentUser && this.roomState) {
         this.socket.emit('heartbeat', {
@@ -100,7 +100,7 @@ export class GlobalVoiceRoomManager {
           roomId: this.roomState.roomId
         })
       }
-    }, 30000)
+    }, 15000)
 
     // Send initial heartbeat
     if (this.currentUser && this.roomState) {
@@ -234,24 +234,32 @@ export class GlobalVoiceRoomManager {
       console.log('🔊 Resuming audio context...')
       await this.audioStreamManager.resume()
 
-      // Get microphone stream
+      // Get microphone stream for WebRTC broadcasting
       console.log('🔊 Getting microphone stream...')
       const micStream = await this.audioStreamManager.getMicrophoneStream()
 
-      // Connect microphone to analyzer for audio level monitoring
-      console.log('🔊 Connecting microphone to analyzer...')
-      this.audioStreamManager.addSpeakerStream('local', micStream, 1.0)
-
-      // 🔥 ADD THIS: Start audio playback
-      this.audioStreamManager.startAudioPlayback()
+      // Connect microphone to analyzer for audio level monitoring (without playback)
+      console.log('🔊 Connecting microphone to analyzer for level monitoring...')
+      await this.audioStreamManager.connectMicrophoneToAnalyzer(micStream)
+      console.log('🔊 Microphone stream ready for broadcasting and level monitoring active')
 
       // Get list of listener IDs
       const listenerIds = this.roomState.listeners.map(
         listener => listener.user.id
       )
 
-      // Start broadcasting to listeners
-      await this.voiceBroadcastManager.startSpeaking(listenerIds)
+      // Get list of other speaker IDs (excluding ourselves)
+      const otherSpeakerIds = this.roomState.speakers
+        .filter(speaker => speaker.user.id !== this.currentUser!.id)
+        .map(speaker => speaker.user.id)
+
+      // Combine listeners and other speakers for connections
+      const allPeerIds = [...listenerIds, ...otherSpeakerIds]
+
+      console.log(`🔊 Connecting to ${listenerIds.length} listeners and ${otherSpeakerIds.length} other speakers`)
+
+      // Start broadcasting to all peers (listeners + other speakers)
+      await this.voiceBroadcastManager.startSpeaking(allPeerIds)
 
       // Start audio level monitoring
       console.log('🔊 Starting audio level monitoring...')
@@ -277,10 +285,7 @@ export class GlobalVoiceRoomManager {
         await this.voiceBroadcastManager.stopSpeaking()
       }
 
-      // 🔥 ADD THIS: Stop audio playback
-      this.audioStreamManager.stopAudioPlayback()
-
-      this.audioStreamManager.removeSpeakerStream('local')
+      // Stop microphone stream and disconnect analyzer
       this.audioStreamManager.stopMicrophone()
 
       // Stop audio level monitoring
@@ -306,14 +311,16 @@ export class GlobalVoiceRoomManager {
 
       console.log('Starting to listen...')
 
-      // Get list of speaker IDs
-      const speakerIds = this.roomState.speakers.map(speaker => speaker.user.id)
+      // Get list of OTHER speaker IDs (excluding ourselves if we're also a speaker)
+      const otherSpeakerIds = this.roomState.speakers
+        .filter(speaker => speaker.user.id !== this.currentUser!.id)
+        .map(speaker => speaker.user.id)
 
-      if (speakerIds.length > 0) {
-        await this.voiceBroadcastManager.startListening(speakerIds)
-        console.log('Started listening to speakers')
+      if (otherSpeakerIds.length > 0) {
+        await this.voiceBroadcastManager.startListening(otherSpeakerIds)
+        console.log(`Started listening to ${otherSpeakerIds.length} other speakers`)
       } else {
-        console.log('No speakers to listen to')
+        console.log('No other speakers to listen to')
       }
     } catch (error) {
       console.error('Failed to start listening:', error)
@@ -442,8 +449,9 @@ export class GlobalVoiceRoomManager {
       // Start heartbeat monitoring for this room
       this.startHeartbeat()
 
-      // Start listening if we're a listener
-      if (this.getCurrentUserRole() === VoiceRoomRole.LISTENER) {
+      // Start listening if we're a listener OR a speaker (speakers need to hear other speakers)
+      const currentRole = this.getCurrentUserRole()
+      if (currentRole === VoiceRoomRole.LISTENER || currentRole === VoiceRoomRole.SPEAKER) {
         this.startListening().catch(console.error)
       }
     })
@@ -536,6 +544,8 @@ export class GlobalVoiceRoomManager {
         await this.stopListening()
         console.log('🎤 Starting to speak...')
         await this.startSpeaking()
+        console.log('🎤 Starting to listen to other speakers...')
+        await this.startListening()
         this.emit('speakerPromoted', this.currentUser!.id)
       } else if (newRole === VoiceRoomRole.LISTENER) {
         console.log(

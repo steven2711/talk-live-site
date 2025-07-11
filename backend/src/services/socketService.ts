@@ -3,7 +3,6 @@ import { v4 as uuidv4 } from 'uuid'
 import { logger } from '../utils/logger.js'
 import { validateUsername } from '../utils/validation.js'
 import { ChatManager } from './chatManager.js'
-import { VoiceRoomManager } from './voiceRoomManager.js'
 import type { 
   ServerToClientEvents, 
   ClientToServerEvents, 
@@ -11,16 +10,13 @@ import type {
   SocketData,
   User
 } from '../types/index.js'
-import { ConnectionStatus, MessageType, VoiceRoomRole } from '../types/index.js'
+import { ConnectionStatus, MessageType } from '../types/index.js'
 
 type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>
 type TypedServer = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>
 
 export function setupSocketHandlers(io: TypedServer, chatManager: ChatManager): void {
   logger.info('Setting up Socket.IO event handlers')
-  
-  // Initialize voice room manager
-  const voiceRoomManager = new VoiceRoomManager()
 
   io.on('connection', (socket: TypedSocket) => {
     logger.info(`New socket connection: ${socket.id}`)
@@ -201,20 +197,13 @@ export function setupSocketHandlers(io: TypedServer, chatManager: ChatManager): 
       }
     })
 
-    // Handle enhanced heartbeat for voice room monitoring
+    // Handle enhanced heartbeat for chat monitoring
     socket.on('heartbeat', (data: { userId: string; timestamp: number; roomId: string }) => {
       try {
         const user = socket.data.user
         if (user && user.id === data.userId) {
           // Update user activity in chat manager
           chatManager.updateUserActivity(user.id)
-          
-          // Update user activity in voice room manager
-          const userRole = voiceRoomManager.getUserRole(user.id)
-          if (userRole) {
-            voiceRoomManager.updateUserActivity(user.id)
-            logger.debug(`Heartbeat received from user ${user.id} in voice room`)
-          }
           
           // Send heartbeat acknowledgment
           socket.emit('heartbeat_ack', { timestamp: Date.now() })
@@ -226,199 +215,6 @@ export function setupSocketHandlers(io: TypedServer, chatManager: ChatManager): 
       }
     })
 
-    // === VOICE ROOM HANDLERS ===
-
-    // Handle joining voice room
-    socket.on('join_voice_room', (username: string) => {
-      try {
-        logger.info(`User ${username} attempting to join voice room from socket ${socket.id}`)
-
-        // Validate username
-        const validationResult = validateUsername(username)
-        if (!validationResult.isValid) {
-          socket.emit('error', validationResult.error || 'Invalid username')
-          return
-        }
-
-        // Create user object
-        const user: User = {
-          id: uuidv4(),
-          username: username.trim(),
-          socketId: socket.id,
-          connectedAt: new Date(),
-          lastActivity: new Date()
-        }
-
-        // Store user data in socket
-        socket.data.user = user
-
-        // Add user to voice room
-        const roomState = voiceRoomManager.addUser(user)
-        
-        // Send room state to user
-        socket.emit('voice_room_joined', roomState)
-        
-        // Broadcast room update to all users in the room
-        broadcastVoiceRoomUpdate(io, voiceRoomManager)
-
-        logger.info(`User ${username} (${user.id}) joined voice room`)
-
-      } catch (error) {
-        logger.error(`Error joining voice room: ${error}`)
-        socket.emit('error', error instanceof Error ? error.message : 'Failed to join voice room')
-      }
-    })
-
-    // Handle leaving voice room
-    socket.on('leave_voice_room', () => {
-      try {
-        const user = socket.data.user
-        if (!user) return
-
-        voiceRoomManager.removeUser(user.id)
-        
-        // Broadcast room update to remaining users
-        broadcastVoiceRoomUpdate(io, voiceRoomManager)
-        
-        socket.emit('connection_status', ConnectionStatus.DISCONNECTED)
-        logger.info(`User ${user.username} (${user.id}) left voice room`)
-
-      } catch (error) {
-        logger.error(`Error handling leave voice room: ${error}`)
-      }
-    })
-
-    // Handle speaker role request
-    socket.on('request_speaker_role', () => {
-      try {
-        const user = socket.data.user
-        if (!user) {
-          socket.emit('error', 'User not authenticated')
-          return
-        }
-
-        const result = voiceRoomManager.requestSpeakerRole(user.id)
-        
-        if (result.success) {
-          // Broadcast room update to all users
-          broadcastVoiceRoomUpdate(io, voiceRoomManager)
-          
-          // Notify the user of role change
-          socket.emit('user_role_changed', user.id, VoiceRoomRole.SPEAKER)
-          
-          logger.info(`User ${user.username} promoted to speaker`)
-        } else {
-          socket.emit('error', result.message)
-        }
-
-      } catch (error) {
-        logger.error(`Error handling speaker role request: ${error}`)
-        socket.emit('error', 'Failed to process speaker request')
-      }
-    })
-
-    // Handle volume changes
-    socket.on('set_speaker_volume', (volume: number) => {
-      try {
-        const user = socket.data.user
-        if (!user) return
-
-        if (voiceRoomManager.setUserVolume(user.id, volume)) {
-          // Broadcast volume change to other users
-          const allUsers = voiceRoomManager.getAllUsers()
-          allUsers.forEach(roomUser => {
-            if (roomUser.user.id !== user.id) {
-              const userSocket = io.sockets.sockets.get(roomUser.user.socketId)
-              if (userSocket) {
-                userSocket.emit('speaker_volume_changed', user.id, volume)
-              }
-            }
-          })
-        }
-
-      } catch (error) {
-        logger.error(`Error setting speaker volume: ${error}`)
-      }
-    })
-
-    // Handle mute/unmute
-    socket.on('mute_speaker', (muted: boolean) => {
-      try {
-        const user = socket.data.user
-        if (!user) return
-
-        if (voiceRoomManager.setUserMuted(user.id, muted)) {
-          // Broadcast mute state to other users
-          broadcastVoiceRoomUpdate(io, voiceRoomManager)
-        }
-
-      } catch (error) {
-        logger.error(`Error handling mute speaker: ${error}`)
-      }
-    })
-
-    // Handle audio level updates
-    socket.on('send_audio_level', (level: number) => {
-      try {
-        const user = socket.data.user
-        if (!user) return
-
-        voiceRoomManager.updateAudioLevel(user.id, level)
-        
-        // Broadcast audio level to other users (throttled)
-        const allUsers = voiceRoomManager.getAllUsers()
-        allUsers.forEach(roomUser => {
-          if (roomUser.user.id !== user.id) {
-            const userSocket = io.sockets.sockets.get(roomUser.user.socketId)
-            if (userSocket) {
-              userSocket.emit('audio_level_update', {
-                userId: user.id,
-                audioLevel: level,
-                timestamp: new Date()
-              })
-            }
-          }
-        })
-
-      } catch (error) {
-        logger.error(`Error handling audio level update: ${error}`)
-      }
-    })
-
-    // Handle WebRTC signaling for voice room
-    socket.on('voice_room_broadcast_signal', (message) => {
-      try {
-        const user = socket.data.user
-        if (!user) return
-
-        // Handle the broadcast signal
-        voiceRoomManager.handleBroadcastSignal(message)
-        
-        // Forward the signal to the appropriate user(s)
-        if (message.toUserId) {
-          // Send to specific user
-          const targetSocket = io.sockets.sockets.get(message.toUserId)
-          if (targetSocket) {
-            targetSocket.emit('voice_room_broadcast_signal', message)
-          }
-        } else {
-          // Broadcast to all users in the room
-          const allUsers = voiceRoomManager.getAllUsers()
-          allUsers.forEach(roomUser => {
-            if (roomUser.user.id !== user.id) {
-              const userSocket = io.sockets.sockets.get(roomUser.user.socketId)
-              if (userSocket) {
-                userSocket.emit('voice_room_broadcast_signal', message)
-              }
-            }
-          })
-        }
-
-      } catch (error) {
-        logger.error(`Error handling voice room broadcast signal: ${error}`)
-      }
-    })
-
     // Handle disconnection
     socket.on('disconnect', (reason) => {
       try {
@@ -426,14 +222,6 @@ export function setupSocketHandlers(io: TypedServer, chatManager: ChatManager): 
         if (user) {
           // Handle regular chat disconnection
           handleUserLeaving(socket, user, chatManager, io)
-          
-          // Handle voice room disconnection
-          const userRole = voiceRoomManager.getUserRole(user.id)
-          if (userRole) {
-            voiceRoomManager.removeUser(user.id)
-            broadcastVoiceRoomUpdate(io, voiceRoomManager)
-            logger.info(`User ${user.username} removed from voice room due to disconnection`)
-          }
           
           logger.info(`User ${user.username} (${user.id}) disconnected: ${reason}`)
         } else {
@@ -445,37 +233,14 @@ export function setupSocketHandlers(io: TypedServer, chatManager: ChatManager): 
     })
   })
 
-  // Periodic cleanup - more frequent for better user experience
+  // Regular chat cleanup
   setInterval(() => {
     chatManager.cleanupInactiveRooms()
-    const removedCount = voiceRoomManager.cleanupInactiveUsers()
-    
-    // If users were removed, broadcast voice room updates
-    if (removedCount > 0) {
-      broadcastVoiceRoomUpdate(io, voiceRoomManager)
-      logger.info(`Broadcasted voice room update after removing ${removedCount} inactive users`)
-    }
-  }, 30 * 1000) // Run every 30 seconds for faster cleanup
+  }, 30 * 1000) // Run every 30 seconds for chat cleanup
 
   logger.info('Socket.IO event handlers setup complete')
 }
 
-// Helper function to broadcast voice room updates to all users
-function broadcastVoiceRoomUpdate(io: TypedServer, voiceRoomManager: VoiceRoomManager): void {
-  try {
-    const roomState = voiceRoomManager.getRoomState()
-    const allUsers = voiceRoomManager.getAllUsers()
-    
-    allUsers.forEach(user => {
-      const userSocket = io.sockets.sockets.get(user.user.socketId)
-      if (userSocket) {
-        userSocket.emit('voice_room_updated', roomState)
-      }
-    })
-  } catch (error) {
-    logger.error(`Error broadcasting voice room update: ${error}`)
-  }
-}
 
 function handleUserMatched(
   socket: TypedSocket, 

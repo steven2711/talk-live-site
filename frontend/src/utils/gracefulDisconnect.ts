@@ -7,6 +7,7 @@
 
 export interface DisconnectOptions {
   userId: string;
+  action?: string;
   reason?: string;
   maxRetries?: number;
   retryDelay?: number;
@@ -126,12 +127,17 @@ class GracefulDisconnectManager {
     try {
       const disconnectData = JSON.stringify({
         userId: options.userId,
-        action: 'leave_voice_room',
+        action: options.action || 'leave_voice_room',
         reason: options.reason || 'page_unload',
         timestamp: Date.now()
       });
 
-      const success = navigator.sendBeacon('/api/voice-room/disconnect', disconnectData);
+      // Use Blob with proper Content-Type for beacon requests
+      const blob = new Blob([disconnectData], {
+        type: 'application/json'
+      });
+
+      const success = navigator.sendBeacon('/api/voice-room/disconnect', blob);
       
       if (success) {
         console.log(`Beacon disconnect successful for user ${options.userId}`);
@@ -173,7 +179,7 @@ class GracefulDisconnectManager {
           },
           body: JSON.stringify({
             userId: options.userId,
-            action: 'leave_voice_room',
+            action: options.action || 'leave_voice_room',
             reason: options.reason || 'manual_disconnect',
             timestamp: Date.now()
           })
@@ -265,7 +271,12 @@ class GracefulDisconnectManager {
         timestamp: Date.now()
       });
 
-      navigator.sendBeacon('/api/voice-room/disconnect', disconnectData);
+      // Use Blob with proper Content-Type for beacon requests
+      const blob = new Blob([disconnectData], {
+        type: 'application/json'
+      });
+
+      navigator.sendBeacon('/api/voice-room/disconnect', blob);
       console.log(`Emergency disconnect sent for user ${userId}`);
     }
   }

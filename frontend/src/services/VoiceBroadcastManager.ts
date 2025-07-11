@@ -116,6 +116,9 @@ export class VoiceBroadcastManager {
       this.state.role = 'speaker';
       this.state.isActive = true;
 
+      // Setup audio mixing for speakers too (to hear other speakers)
+      await this.setupAudioMixing();
+
       // Create connections to all listeners
       for (const listenerId of listenerIds) {
         await this.createSpeakerConnection(listenerId);
@@ -509,14 +512,15 @@ export class VoiceBroadcastManager {
       
       this.state.speakerStreams.set(speakerId, stream);
 
-      // Add to audio mixing if we're a listener AND this is NOT our own stream
-      if (this.state.role === 'listener' && this.state.audioContext && this.state.mixedAudioDestination) {
-        // Skip our own stream to prevent hearing ourselves
-        if (speakerId === this.socket.id) {
-          console.log(`Skipping own stream ${speakerId} to prevent self-hearing`);
-          this.emitStateChange();
-          return;
-        }
+      // Always skip our own stream to prevent self-hearing
+      if (speakerId === this.socket.id) {
+        console.log(`Skipping own stream ${speakerId} to prevent self-hearing`);
+        this.emitStateChange();
+        return;
+      }
+
+      // Add to audio mixing for both listeners and speakers (but not our own stream)
+      if (this.state.audioContext && this.state.mixedAudioDestination) {
         
         // Ensure audio context is running
         await this.ensureAudioContextRunning();
@@ -579,11 +583,32 @@ export class VoiceBroadcastManager {
   }
 
   /**
+   * Initialize audio context if not already initialized
+   */
+  private async initializeAudioContext(): Promise<void> {
+    if (!this.state.audioContext) {
+      try {
+        console.log('Initializing audio context');
+        this.state.audioContext = new AudioContext();
+        console.log('Audio context initialized successfully');
+      } catch (error) {
+        console.error('Failed to initialize audio context:', error);
+        throw error;
+      }
+    }
+  }
+
+  /**
    * Ensure audio context is running
    */
   private async ensureAudioContextRunning(): Promise<void> {
+    // Initialize if not already initialized
     if (!this.state.audioContext) {
-      throw new Error('Audio context not initialized');
+      await this.initializeAudioContext();
+    }
+
+    if (!this.state.audioContext) {
+      throw new Error('Audio context could not be initialized');
     }
 
     console.log(`Audio context state: ${this.state.audioContext.state}`);
@@ -598,8 +623,9 @@ export class VoiceBroadcastManager {
         throw error;
       }
     } else if (this.state.audioContext.state === 'closed') {
-      console.error('Audio context is closed');
-      throw new Error('Audio context is closed');
+      console.error('Audio context is closed, creating new one');
+      // Create a new audio context if the old one is closed
+      await this.initializeAudioContext();
     }
   }
 

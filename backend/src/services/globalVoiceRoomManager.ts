@@ -35,15 +35,35 @@ export class GlobalVoiceRoomManager {
   /**
    * Add user to the global voice room
    * Auto-assigns speaker role if slot available, otherwise adds to listener queue
+   * Handles username-based deduplication for session continuity
    */
   addUser(user: User): { role: VoiceRoomRole; queuePosition?: number } {
-    // Check if user is already in the room
+    // Check if user is already in the room by ID
     if (this.userVoiceData.has(user.id)) {
       const existingUser = this.userVoiceData.get(user.id)!
+      // Update socket ID if different (user reconnected)
+      if (existingUser.user.socketId !== user.socketId) {
+        existingUser.user.socketId = user.socketId
+        existingUser.user.lastActivity = new Date()
+        this.userVoiceData.set(user.id, existingUser)
+        logger.info(`Updated socket ID for user ${user.username} (${user.id})`)
+      }
       return {
         role: existingUser.role,
         queuePosition: existingUser.queuePosition
       }
+    }
+
+    // Check for username-based duplicate (same username, different socket/ID)
+    const existingByUsername = this.findUserByUsername(user.username)
+    if (existingByUsername) {
+      // Replace the existing user with the new connection
+      logger.info(`Replacing existing user ${existingByUsername.user.username} (${existingByUsername.user.id}) with new connection (${user.id})`)
+      
+      // Remove old user
+      this.removeUser(existingByUsername.user.id)
+      
+      // Continue with adding the new user
     }
 
     let role: VoiceRoomRole
@@ -256,6 +276,25 @@ export class GlobalVoiceRoomManager {
   }
 
   /**
+   * Check if user exists in voice room
+   */
+  hasUser(userId: string): boolean {
+    return this.userVoiceData.has(userId);
+  }
+
+  /**
+   * Find user by username (for deduplication)
+   */
+  private findUserByUsername(username: string): VoiceRoomUser | null {
+    for (const [, voiceUser] of this.userVoiceData) {
+      if (voiceUser.user.username === username) {
+        return voiceUser;
+      }
+    }
+    return null;
+  }
+
+  /**
    * Update user activity timestamp
    */
   updateUserActivity(userId: string): void {
@@ -297,6 +336,102 @@ export class GlobalVoiceRoomManager {
     this.voiceRoom.createdAt = new Date()
     
     logger.info(`Voice room ${this.voiceRoom.id} has been reset`)
+  }
+
+  /**
+   * Set user volume
+   */
+  setUserVolume(userId: string, volume: number): boolean {
+    const voiceUser = this.userVoiceData.get(userId)
+    if (!voiceUser) {
+      return false
+    }
+    
+    voiceUser.volume = Math.max(0, Math.min(1, volume)) // Clamp between 0-1
+    this.userVoiceData.set(userId, voiceUser)
+    
+    // Update in the appropriate array
+    if (voiceUser.role === VoiceRoomRole.SPEAKER) {
+      const speakerIndex = this.voiceRoom.speakers.findIndex(s => s.user.id === userId)
+      if (speakerIndex !== -1) {
+        this.voiceRoom.speakers[speakerIndex] = voiceUser
+      }
+    } else {
+      const listenerIndex = this.voiceRoom.listeners.findIndex(l => l.user.id === userId)
+      if (listenerIndex !== -1) {
+        this.voiceRoom.listeners[listenerIndex] = voiceUser
+      }
+    }
+    
+    logger.debug(`Set volume for user ${userId} to ${volume}`)
+    return true
+  }
+
+  /**
+   * Set user muted state
+   */
+  setUserMuted(userId: string, muted: boolean): boolean {
+    const voiceUser = this.userVoiceData.get(userId)
+    if (!voiceUser) {
+      return false
+    }
+    
+    voiceUser.isMuted = muted
+    this.userVoiceData.set(userId, voiceUser)
+    
+    // Update in the appropriate array
+    if (voiceUser.role === VoiceRoomRole.SPEAKER) {
+      const speakerIndex = this.voiceRoom.speakers.findIndex(s => s.user.id === userId)
+      if (speakerIndex !== -1) {
+        this.voiceRoom.speakers[speakerIndex] = voiceUser
+      }
+    } else {
+      const listenerIndex = this.voiceRoom.listeners.findIndex(l => l.user.id === userId)
+      if (listenerIndex !== -1) {
+        this.voiceRoom.listeners[listenerIndex] = voiceUser
+      }
+    }
+    
+    logger.debug(`Set muted state for user ${userId} to ${muted}`)
+    return true
+  }
+
+  /**
+   * Update user audio level
+   */
+  updateAudioLevel(userId: string, audioLevel: number): boolean {
+    const voiceUser = this.userVoiceData.get(userId)
+    if (!voiceUser) {
+      return false
+    }
+    
+    voiceUser.audioLevel = Math.max(0, Math.min(100, audioLevel)) // Clamp between 0-100
+    this.userVoiceData.set(userId, voiceUser)
+    
+    // Update in the appropriate array
+    if (voiceUser.role === VoiceRoomRole.SPEAKER) {
+      const speakerIndex = this.voiceRoom.speakers.findIndex(s => s.user.id === userId)
+      if (speakerIndex !== -1) {
+        this.voiceRoom.speakers[speakerIndex] = voiceUser
+      }
+    } else {
+      const listenerIndex = this.voiceRoom.listeners.findIndex(l => l.user.id === userId)
+      if (listenerIndex !== -1) {
+        this.voiceRoom.listeners[listenerIndex] = voiceUser
+      }
+    }
+    
+    return true
+  }
+
+  /**
+   * Handle broadcast signal (for WebRTC signaling)
+   */
+  handleBroadcastSignal(message: any): boolean {
+    // This would handle WebRTC signaling between users
+    // For now, we'll just log it and return true
+    logger.debug(`Handling broadcast signal: ${JSON.stringify(message)}`)
+    return true
   }
 
   /**

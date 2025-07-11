@@ -23,6 +23,10 @@ export class AudioStreamManager {
   private masterGain: GainNode | null = null
   private analyser: AnalyserNode | null = null
   private audioElement: HTMLAudioElement | null = null
+  
+  // Separate monitoring for microphone audio levels
+  private microphoneAnalyser: AnalyserNode | null = null
+  private microphoneSource: MediaStreamAudioSourceNode | null = null
 
   constructor(
     private config: MixerConfig = {
@@ -134,6 +138,53 @@ export class AudioStreamManager {
     } catch (error) {
       console.error('❌ Failed to get microphone stream:', error)
       throw error
+    }
+  }
+
+  /**
+   * Connect microphone to analyzer for audio level monitoring (without playback)
+   */
+  async connectMicrophoneToAnalyzer(stream: MediaStream): Promise<void> {
+    try {
+      if (!this.audioContext) {
+        throw new Error('Audio context not initialized')
+      }
+
+      await this.ensureAudioContextRunning()
+
+      console.log('🔊 Connecting microphone to separate analyzer for level monitoring')
+
+      // Create separate analyzer for microphone monitoring
+      this.microphoneAnalyser = this.audioContext.createAnalyser()
+      this.microphoneAnalyser.fftSize = 256
+      this.microphoneAnalyser.smoothingTimeConstant = 0.8
+
+      // Create source from microphone stream
+      this.microphoneSource = this.audioContext.createMediaStreamSource(stream)
+
+      // Connect microphone directly to its own analyzer (NOT to playback chain)
+      this.microphoneSource.connect(this.microphoneAnalyser)
+
+      console.log('✅ Microphone connected to analyzer for level monitoring')
+    } catch (error) {
+      console.error('❌ Failed to connect microphone to analyzer:', error)
+      throw error
+    }
+  }
+
+  /**
+   * Disconnect microphone from analyzer
+   */
+  disconnectMicrophoneAnalyzer(): void {
+    try {
+      if (this.microphoneSource) {
+        this.microphoneSource.disconnect()
+        this.microphoneSource = null
+      }
+      this.microphoneAnalyser = null
+      console.log('🔊 Microphone analyzer disconnected')
+    } catch (error) {
+      console.error('❌ Failed to disconnect microphone analyzer:', error)
     }
   }
 
@@ -305,13 +356,16 @@ export class AudioStreamManager {
    * Get current audio volume level (0-1)
    */
   getCurrentVolume(): number {
-    if (!this.analyser) {
+    // Use microphone analyzer for local audio level monitoring
+    const analyzer = this.microphoneAnalyser || this.analyser
+    
+    if (!analyzer) {
       console.log('🔊 No analyser available for volume measurement')
       return 0
     }
 
-    const dataArray = new Uint8Array(this.analyser.frequencyBinCount)
-    this.analyser.getByteTimeDomainData(dataArray)
+    const dataArray = new Uint8Array(analyzer.frequencyBinCount)
+    analyzer.getByteTimeDomainData(dataArray)
 
     let sum = 0
     for (let i = 0; i < dataArray.length; i++) {
@@ -320,8 +374,9 @@ export class AudioStreamManager {
     }
 
     const volume = Math.sqrt(sum / dataArray.length)
+    const analyzerType = this.microphoneAnalyser ? 'microphone' : 'main'
     console.log(
-      `🔊 Raw volume: ${volume}, Analyser FFT size: ${this.analyser.fftSize}, Frequency bins: ${this.analyser.frequencyBinCount}`
+      `🔊 Raw volume: ${volume} (${analyzerType} analyzer), FFT size: ${analyzer.fftSize}, Frequency bins: ${analyzer.frequencyBinCount}`
     )
 
     return volume
@@ -608,6 +663,9 @@ export class AudioStreamManager {
       this.localStream = null
       console.log('Microphone stream stopped')
     }
+    
+    // Also disconnect the microphone analyzer
+    this.disconnectMicrophoneAnalyzer()
   }
 
   /**
@@ -720,6 +778,9 @@ export class AudioStreamManager {
       // Clear maps
       this.speakerSources.clear()
       this.gainNodes.clear()
+
+      // Disconnect microphone analyzer
+      this.disconnectMicrophoneAnalyzer()
 
       // Close audio context
       if (this.audioContext) {

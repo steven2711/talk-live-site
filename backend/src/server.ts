@@ -141,6 +141,121 @@ app.get('/api/voice-room', (_req, res) => {
   })
 })
 
+// API endpoint to force remove a user (for testing/admin)
+app.post('/api/voice-room/force-remove/:userId', (req, res) => {
+  try {
+    const { userId } = req.params
+    
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' })
+    }
+    
+    logger.info(`Force removing user ${userId} from voice room`)
+    
+    if (!voiceRoomManager.hasUser(userId)) {
+      return res.json({ 
+        success: false, 
+        message: 'User not found in voice room',
+        userId 
+      })
+    }
+    
+    const result = voiceRoomManager.removeUser(userId)
+    logger.info(`Force removed user ${userId} from voice room`)
+    
+    return res.json({ 
+      success: true, 
+      message: 'User force removed successfully',
+      removedUser: userId,
+      promotedUsers: result.promotedUsers?.length || 0
+    })
+    
+  } catch (error) {
+    logger.error('Error force removing user:', error)
+    return res.status(500).json({ 
+      error: 'Internal server error during force remove',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    })
+  }
+})
+
+// API endpoint to reset voice room (clear all users - for testing)
+app.post('/api/voice-room/reset', (_req, res) => {
+  try {
+    logger.warn('RESETTING VOICE ROOM - removing all users')
+    voiceRoomManager.resetRoom()
+    
+    res.json({ 
+      success: true, 
+      message: 'Voice room reset successfully - all users removed'
+    })
+    
+  } catch (error) {
+    logger.error('Error resetting voice room:', error)
+    res.status(500).json({ 
+      error: 'Internal server error during reset',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    })
+  }
+})
+
+// API endpoint for voice room disconnect (handles beacon requests)
+app.post('/api/voice-room/disconnect', (req, res) => {
+  try {
+    const { userId, action, reason } = req.body
+    
+    // Validate required fields - action is optional
+    if (!userId) {
+      logger.warn('Invalid disconnect request - missing userId:', req.body)
+      return res.status(400).json({ 
+        error: 'Missing required field: userId' 
+      })
+    }
+    
+    // Default action if not provided
+    const finalAction = action || 'leave_voice_room'
+    
+    logger.info(`Beacon disconnect request: userId=${userId}, action=${finalAction}, reason=${reason}`)
+    
+    // Check if user exists before trying to remove
+    if (!voiceRoomManager.hasUser(userId)) {
+      logger.warn(`Failed to remove user ${userId} via beacon disconnect - user not found`)
+      return res.json({ 
+        success: false, 
+        message: 'User not found in voice room',
+        userId 
+      })
+    }
+    
+    // Remove user from voice room
+    const result = voiceRoomManager.removeUser(userId)
+    
+    logger.info(`Successfully removed user ${userId} via beacon disconnect`)
+    
+    // Handle promotions if any users were promoted
+    if (result.promotedUsers && result.promotedUsers.length > 0) {
+      logger.info(`Promoted ${result.promotedUsers.length} users to speaker after disconnect`)
+    }
+    
+    // In a real implementation, we'd broadcast the update to all connected sockets
+    // For now, we'll rely on the periodic cleanup to handle updates
+    
+    return res.json({ 
+      success: true, 
+      message: 'User disconnected successfully',
+      removedUser: userId,
+      promotedUsers: result.promotedUsers?.length || 0
+    })
+    
+  } catch (error) {
+    logger.error('Error handling beacon disconnect:', error)
+    return res.status(500).json({ 
+      error: 'Internal server error during disconnect',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    })
+  }
+})
+
 // Setup Socket.IO event handlers
 logger.info('Setting up Socket.IO event handlers...')
 try {
