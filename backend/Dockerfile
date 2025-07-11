@@ -11,13 +11,16 @@ RUN npm ci
 # Build the backend
 RUN npm run build:backend
 
+# Create non-root user first
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
 # Create logs directory with proper permissions
 RUN mkdir -p logs && chown -R nodejs:nodejs logs
 
-# Create non-root user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001 && \
-    chown -R nodejs:nodejs /app
+# Change ownership of entire app directory
+RUN chown -R nodejs:nodejs /app
+
 USER nodejs
 
 EXPOSE 3001
