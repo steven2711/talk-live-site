@@ -177,13 +177,22 @@ export class VoiceBroadcastManager {
     try {
       console.log('🎧 [WEBRTC] startListening() called with speaker IDs:', speakerIds);
       
-      if (this.state.isActive) {
-        console.log('🎧 [WEBRTC] Already listening, current state:', this.state);
+      // Allow speakers to listen to other speakers without throwing error
+      if (this.state.isActive && this.state.role === 'listener') {
+        console.log('🎧 [WEBRTC] Already listening as listener, current state:', this.state);
         throw new Error('Already listening');
       }
-
-      this.state.role = 'listener';
-      this.state.isActive = true;
+      
+      const isSpeakerWantingToListen = this.state.isActive && this.state.role === 'speaker';
+      
+      if (isSpeakerWantingToListen) {
+        console.log('🎧 [WEBRTC] Speaker wanting to listen to other speakers - this is allowed');
+        // Don't change role or isActive state for speakers
+      } else {
+        // Only set role/active for pure listeners
+        this.state.role = 'listener';
+        this.state.isActive = true;
+      }
 
       // Setup audio mixing
       console.log('🎧 [WEBRTC] Setting up audio mixing for listening...');

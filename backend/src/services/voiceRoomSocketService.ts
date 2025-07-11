@@ -228,6 +228,10 @@ export function setupVoiceRoomSocketHandlers(io: TypedServer, voiceRoomManager: 
     socket.on('heartbeat', (data: { userId: string; timestamp: number; roomId: string }) => {
       try {
         const user = socket.data.user
+        
+        // Debug logging
+        logger.debug(`Heartbeat received - Socket ID: ${socket.id}, User in socket.data: ${user ? user.id : 'none'}, Heartbeat user ID: ${data.userId}`)
+        
         if (user && user.id === data.userId) {
           // Update user activity
           user.lastActivity = new Date()
@@ -240,7 +244,23 @@ export function setupVoiceRoomSocketHandlers(io: TypedServer, voiceRoomManager: 
           // Send heartbeat acknowledgment
           socket.emit('heartbeat_ack', { timestamp: Date.now() })
         } else {
-          logger.warn(`Voice room heartbeat received from unauthorized user: ${data.userId}`)
+          // Try to find user by ID in voice room manager
+          const userStatus = voiceRoomManager.getUserVoiceStatus(data.userId)
+          if (userStatus && userStatus.user.socketId === socket.id) {
+            // Re-associate user with socket
+            socket.data.user = userStatus.user
+            socket.data.user.lastActivity = new Date()
+            
+            // Update voice room manager activity
+            voiceRoomManager.updateUserActivity(data.userId)
+            
+            logger.info(`Re-associated user ${data.userId} with socket ${socket.id}`)
+            
+            // Send heartbeat acknowledgment
+            socket.emit('heartbeat_ack', { timestamp: Date.now() })
+          } else {
+            logger.warn(`Voice room heartbeat received from unauthorized user: ${data.userId} (socket: ${socket.id}, user in socket.data: ${user ? user.id : 'none'})`)
+          }
         }
       } catch (error) {
         logger.error(`Error handling voice room heartbeat: ${error}`)
@@ -250,10 +270,22 @@ export function setupVoiceRoomSocketHandlers(io: TypedServer, voiceRoomManager: 
     // Handle audio level updates (broadcast to all other users in the room)
     socket.on('send_audio_level', (audioLevel: number) => {
       try {
-        const user = socket.data.user
+        let user = socket.data.user
+        
         if (!user) {
-          logger.warn('Audio level received from unauthenticated user')
-          return
+          // Try to find user by socket ID in voice room manager
+          const allUsers = [...voiceRoomManager.getSpeakers(), ...voiceRoomManager.getListenerQueue()]
+          const foundUserStatus = allUsers.find(userStatus => userStatus.user.socketId === socket.id)
+          
+          if (foundUserStatus) {
+            // Re-associate user with socket
+            socket.data.user = foundUserStatus.user
+            user = foundUserStatus.user
+            logger.info(`Re-associated user ${user.id} with socket ${socket.id} for audio level`)
+          } else {
+            logger.warn(`Audio level received from unauthenticated user (socket: ${socket.id})`)
+            return
+          }
         }
 
         const userStatus = voiceRoomManager.getUserVoiceStatus(user.id)

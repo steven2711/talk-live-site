@@ -121,6 +121,15 @@ app.get('/health', (_req, res) => {
   })
 })
 
+// Health check endpoint alias (for frontend compatibility)
+app.get('/health-check', (_req, res) => {
+  res.json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+  })
+})
+
 // API endpoint for chat statistics
 app.get('/api/stats', (_req, res) => {
   const chatStats = chatManager.getStats()

@@ -22,7 +22,7 @@ const checkServerConnectivity = async (url: string): Promise<boolean> => {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 5000)
     
-    const response = await fetch(`${url}/health-check`, {
+    const response = await fetch(`${url}/health`, {
       method: 'GET',
       signal: controller.signal
     })
