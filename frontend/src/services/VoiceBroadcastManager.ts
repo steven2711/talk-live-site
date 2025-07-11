@@ -43,6 +43,11 @@ export class VoiceBroadcastManager {
       credential: 'webrtcpassword',
     },
     // TLS/DTLS TURN (more secure, uses your SSL cert)
+    {
+      urls: 'turns:143.110.235.225:5349',
+      username: 'webrtcuser',
+      credential: 'webrtcpassword',
+    },
 
     // Google STUN servers (backup)
     { urls: 'stun:stun.l.google.com:19302' },
