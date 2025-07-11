@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  # Backend Node.js application (Development)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: talk-live-backend-dev
+    restart: unless-stopped
+    env_file:
+      - .env.development
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - PORT=${PORT:-3001}
+      - HOST=${HOST:-localhost}
+      - FRONTEND_URL=${FRONTEND_URL}
+      - CORS_ORIGIN=${CORS_ORIGIN}
+      - CORS_CREDENTIALS=${CORS_CREDENTIALS:-true}
+      - RATE_LIMIT_WINDOW_MS=${RATE_LIMIT_WINDOW_MS:-900000}
+      - RATE_LIMIT_MAX_REQUESTS=${RATE_LIMIT_MAX_REQUESTS:-100}
+      - SOCKET_IO_CORS_ORIGIN=${SOCKET_IO_CORS_ORIGIN}
+      - SOCKET_IO_TRANSPORT=${SOCKET_IO_TRANSPORT:-websocket,polling}
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
+    ports:
+      - '3001:3001'
+    networks:
+      - talk-live-network-dev
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('http').get('http://localhost:3001/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    volumes:
+      # Mount source code for hot reloading
+      - ./backend:/app
+      - /app/node_modules
+      # Mount logs directory for persistent logging
+      - ./logs:/app/logs
+
+  # Frontend Development Server (Local Vite Dev Server)
+  frontend:
+    image: node:18-alpine
+    container_name: talk-live-frontend-dev
+    restart: unless-stopped
+    working_dir: /app
+    env_file:
+      - .env.development
+    environment:
+      - VITE_API_URL=${VITE_API_URL}
+      - VITE_DEV_MODE=${VITE_DEV_MODE:-true}
+      - VITE_NODE_ENV=${VITE_NODE_ENV:-development}
+    ports:
+      - '3000:3000'
+    networks:
+      - talk-live-network-dev
+    volumes:
+      # Mount source code for hot reloading
+      - ./frontend:/app
+      - /app/node_modules
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    depends_on:
+      - backend
+
+  # Nginx reverse proxy (Development)
+  nginx:
+    image: nginx:alpine
+    container_name: talk-live-nginx-dev
+    restart: unless-stopped
+    ports:
+      - '8080:80'
+    volumes:
+      - ./nginx.dev.conf:/etc/nginx/nginx.conf:ro
+      - ./logs/nginx:/var/log/nginx
+    networks:
+      - talk-live-network-dev
+    depends_on:
+      - backend
+
+networks:
+  talk-live-network-dev:
+    driver: bridge
+    name: talk-live-network-dev
+
+volumes:
+  logs:
+    driver: local

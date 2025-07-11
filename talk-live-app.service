@@ -1,0 +1,86 @@
+# Systemd service file for Talk Live WebRTC Application
+# This service manages the Docker Compose stack for the application
+# 
+# Installation:
+# 1. Copy this file to /etc/systemd/system/talk-live-app.service
+# 2. Run: systemctl daemon-reload
+# 3. Run: systemctl enable talk-live-app.service
+# 4. Run: systemctl start talk-live-app.service
+#
+# Management commands:
+# - systemctl status talk-live-app
+# - systemctl restart talk-live-app
+# - systemctl stop talk-live-app
+# - systemctl start talk-live-app
+# - journalctl -u talk-live-app -f
+
+[Unit]
+Description=Talk Live WebRTC Application
+Documentation=https://github.com/your-username/talk-live-site
+After=network.target docker.service
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=root
+Group=root
+WorkingDirectory=/opt/talk-live-app
+
+# Environment variables
+Environment=DOCKER_COMPOSE_FILE=docker-compose.yml
+Environment=COMPOSE_PROJECT_NAME=talk-live-app
+Environment=DOCKER_CLIENT_TIMEOUT=120
+Environment=COMPOSE_HTTP_TIMEOUT=120
+
+# Pre-start checks
+ExecStartPre=/bin/bash -c 'if [ ! -f /opt/talk-live-app/docker-compose.yml ]; then echo "Docker Compose file not found"; exit 1; fi'
+ExecStartPre=/usr/bin/docker-compose -f ${DOCKER_COMPOSE_FILE} config -q
+ExecStartPre=/usr/bin/docker-compose -f ${DOCKER_COMPOSE_FILE} pull --quiet
+
+# Start the application
+ExecStart=/usr/bin/docker-compose -f ${DOCKER_COMPOSE_FILE} up -d --remove-orphans
+
+# Health check after start
+ExecStartPost=/bin/bash -c 'sleep 10 && for i in {1..12}; do if curl -f http://localhost/health > /dev/null 2>&1; then echo "Application started successfully"; exit 0; fi; echo "Waiting for application to start... ($i/12)"; sleep 5; done; echo "Application health check failed"; exit 1'
+
+# Stop the application
+ExecStop=/usr/bin/docker-compose -f ${DOCKER_COMPOSE_FILE} down
+
+# Reload configuration
+ExecReload=/usr/bin/docker-compose -f ${DOCKER_COMPOSE_FILE} restart
+
+# Restart policy
+Restart=on-failure
+RestartSec=30
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/talk-live-app /var/log/talk-live-app
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=talk-live-app
+
+# Timeout settings
+TimeoutStartSec=300
+TimeoutStopSec=120
+TimeoutSec=300
+
+[Install]
+WantedBy=multi-user.target
+Alias=talk-live.service

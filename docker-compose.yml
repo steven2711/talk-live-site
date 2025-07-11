@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+  # Backend Node.js application
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: talk-live-backend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - HOST=0.0.0.0
+      - FRONTEND_URL=https://www.soyouweresaying.com
+      - CORS_ORIGIN=https://www.soyouweresaying.com
+      - CORS_CREDENTIALS=true
+      - RATE_LIMIT_WINDOW_MS=900000
+      - RATE_LIMIT_MAX_REQUESTS=100
+      - SOCKET_IO_CORS_ORIGIN=https://www.soyouweresaying.com
+      - SOCKET_IO_TRANSPORT=websocket,polling
+      - LOG_LEVEL=info
+    ports:
+      - '3001:3001'
+    networks:
+      - talk-live-network
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('http').get('http://localhost:3001/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    volumes:
+      # Mount logs directory for persistent logging
+      - ./logs:/app/logs
+    # Backend should not depend on nginx - removed circular dependency
+
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: talk-live-nginx
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - ./logs/nginx:/var/log/nginx
+    networks:
+      - talk-live-network
+    depends_on:
+      - backend
+
+  # Optional: Add a simple health check service
+  healthcheck:
+    image: alpine:latest
+    container_name: talk-live-healthcheck
+    restart: unless-stopped
+    networks:
+      - talk-live-network
+    depends_on:
+      - backend
+      - nginx
+    command: >
+      sh -c "
+        while true; do
+          echo 'Running health checks...'
+          wget -q --spider http://nginx/health || echo 'Backend health check failed'
+          sleep 30
+        done
+      "
+
+networks:
+  talk-live-network:
+    driver: bridge
+    name: talk-live-network
+
+volumes:
+  logs:
+    driver: local
