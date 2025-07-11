@@ -162,6 +162,7 @@ export interface ServerToClientEvents {
   broadcast_offer: (data: { offer: RTCSessionDescriptionInit; speakerId: string; speakerUsername: string }) => void
   broadcast_answer: (data: { answer: RTCSessionDescriptionInit; listenerId: string }) => void
   broadcast_ice_candidate: (data: { candidate: RTCIceCandidateInit; peerId: string }) => void
+  listener_ready: (data: { listenerId: string; listenerUsername: string }) => void
   
   // System events
   error: (error: string) => void
@@ -192,6 +193,7 @@ export interface ClientToServerEvents {
   broadcast_offer: (data: WebRTCOfferData) => void
   broadcast_answer: (data: WebRTCAnswerData) => void
   broadcast_ice_candidate: (data: WebRTCIceCandidateData) => void
+  ready_to_listen: (data: { speakerIds: string[] }) => void
   
   // Heartbeat
   ping: () => void

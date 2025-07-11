@@ -313,6 +313,38 @@ export function setupVoiceRoomSocketHandlers(io: TypedServer, voiceRoomManager: 
 
     // ===== WebRTC Signaling Handlers =====
     
+    // Handle ready_to_listen event to coordinate WebRTC connections
+    socket.on('ready_to_listen', (data: { speakerIds: string[] }) => {
+      try {
+        const user = socket.data.user
+        if (!user) {
+          logger.warn('ready_to_listen received from unauthenticated user')
+          return
+        }
+
+        logger.debug(`User ${user.username} (${user.id}) ready to listen to speakers: ${data.speakerIds.join(', ')}`)
+
+        // For each speaker, notify them that this listener is ready
+        data.speakerIds.forEach(speakerId => {
+          const speakerSocket = Array.from(io.sockets.sockets.values())
+            .find(s => s.data.user?.id === speakerId)
+          
+          if (speakerSocket) {
+            speakerSocket.emit('listener_ready', {
+              listenerId: user.id,
+              listenerUsername: user.username
+            })
+            logger.debug(`Notified speaker ${speakerId} that listener ${user.id} is ready`)
+          } else {
+            logger.warn(`Speaker ${speakerId} not found for ready_to_listen notification`)
+          }
+        })
+
+      } catch (error) {
+        logger.error(`Error handling ready_to_listen: ${error}`)
+      }
+    })
+    
     // Handle WebRTC offer (Speaker → Listener/Speaker)
     socket.on('broadcast_offer', (data: WebRTCOfferData) => {
       try {
