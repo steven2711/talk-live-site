@@ -38,6 +38,7 @@ COPY --from=builder /app/backend/dist ./dist
 
 # Copy any additional files needed at runtime
 COPY --from=builder /app/package.json ./
+COPY --from=builder /app/backend/package.json ./backend/
 
 # Change ownership to nodejs user
 RUN chown -R nodejs:nodejs /app

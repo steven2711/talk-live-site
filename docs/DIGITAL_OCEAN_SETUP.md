@@ -93,20 +93,6 @@ git clone https://github.com/your-username/talk-live-site.git
 cd talk-live-site
 ```
 
-### 4.2 Configure Environment Variables
-
-```bash
-# Backend configuration
-cp backend/.env.production backend/.env.production.local
-nano backend/.env.production.local
-
-# Update these values:
-# - FRONTEND_URL=https://your-vercel-app.vercel.app
-# - BACKEND_URL=https://your-domain.com
-# - CORS_ORIGIN=https://your-vercel-app.vercel.app
-# - SOCKET_IO_CORS_ORIGIN=https://your-vercel-app.vercel.app
-```
-
 ### 4.3 Configure Deployment Script
 
 ```bash
