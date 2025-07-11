@@ -6,6 +6,7 @@ export interface BroadcastPeer {
   role: 'speaker' | 'listener';
   username: string;
   stuckSince?: number; // Timestamp for stuck connection detection
+  iceCandidateBuffer: RTCIceCandidateInit[]; // Buffer for candidates received before remote description
 }
 
 export interface BroadcastState {
@@ -443,38 +444,72 @@ export class VoiceBroadcastManager {
 
     // Handle ICE connection state changes
     connection.oniceconnectionstatechange = () => {
-      console.log(`🧊 [WEBRTC] ICE connection state for ${listenerId}: ${connection.iceConnectionState}`);
+      const state = connection.iceConnectionState;
+      console.log(`🧊 [WEBRTC] ICE connection state for ${listenerId}: ${state}`);
       
-      if (connection.iceConnectionState === 'failed') {
+      // Log detailed connection info for debugging
+      console.log(`🧊 [WEBRTC] Connection details for ${listenerId}:`, {
+        iceConnectionState: connection.iceConnectionState,
+        connectionState: connection.connectionState,
+        iceGatheringState: connection.iceGatheringState,
+        signalingState: connection.signalingState,
+        localDescription: !!connection.localDescription,
+        remoteDescription: !!connection.remoteDescription
+      });
+      
+      if (state === 'failed') {
         console.error(`❌ [WEBRTC] ICE connection failed for ${listenerId}, attempting recovery`);
         this.attemptConnectionRecovery(listenerId);
-      } else if (connection.iceConnectionState === 'disconnected') {
+      } else if (state === 'disconnected') {
         console.warn(`⚠️ [WEBRTC] ICE connection disconnected for ${listenerId}`);
         // Don't immediately remove, might reconnect
-      } else if (connection.iceConnectionState === 'connected') {
-        console.log(`✅ [WEBRTC] ICE connection established for ${listenerId}`);
-      } else if (connection.iceConnectionState === 'checking') {
+      } else if (state === 'connected') {
+        console.log(`✅ [WEBRTC] ICE connection established for ${listenerId} - AUDIO SHOULD START FLOWING!`);
+      } else if (state === 'checking') {
         console.log(`🔍 [WEBRTC] ICE connection checking for ${listenerId}`);
-      } else if (connection.iceConnectionState === 'completed') {
-        console.log(`🎯 [WEBRTC] ICE connection completed for ${listenerId}`);
+      } else if (state === 'completed') {
+        console.log(`🎯 [WEBRTC] ICE connection completed for ${listenerId} - OPTIMAL CONNECTION ACHIEVED!`);
+      } else if (state === 'new') {
+        console.log(`🆕 [WEBRTC] ICE connection new for ${listenerId}`);
+      } else if (state === 'closed') {
+        console.log(`🔒 [WEBRTC] ICE connection closed for ${listenerId}`);
       }
     };
 
     // Handle track events (CRITICAL: This was missing for speakers!)
     connection.ontrack = (event) => {
-      console.log(`🎵 [WEBRTC] Track received from speaker ${listenerId}:`, event.track);
+      console.log(`🎵 [WEBRTC] ===== TRACK RECEIVED EVENT =====`);
+      console.log(`🎵 [WEBRTC] Track received from speaker ${listenerId}:`, {
+        track: event.track,
+        kind: event.track.kind,
+        id: event.track.id,
+        label: event.track.label,
+        enabled: event.track.enabled,
+        readyState: event.track.readyState,
+        muted: event.track.muted
+      });
+      
       const [stream] = event.streams;
       if (stream) {
-        console.log(`🎵 [WEBRTC] Audio stream received from speaker ${listenerId}:`, stream);
+        console.log(`🎵 [WEBRTC] Audio stream received from speaker ${listenerId}:`, {
+          streamId: stream.id,
+          active: stream.active,
+          trackCount: stream.getTracks().length
+        });
         console.log(`🎵 [WEBRTC] Stream tracks:`, stream.getTracks().map(t => ({
           id: t.id,
           kind: t.kind,
           enabled: t.enabled,
-          readyState: t.readyState
+          readyState: t.readyState,
+          muted: t.muted
         })));
+        
+        console.log(`🎵 [WEBRTC] Calling addSpeakerStream for ${listenerId}`);
         this.addSpeakerStream(listenerId, stream);
+        console.log(`🎵 [WEBRTC] ===== TRACK PROCESSING COMPLETE =====`);
       } else {
         console.warn(`⚠️ [WEBRTC] No stream received with track from speaker ${listenerId}`);
+        console.warn(`⚠️ [WEBRTC] Event streams:`, event.streams);
       }
     };
 
@@ -504,7 +539,8 @@ export class VoiceBroadcastManager {
       id: listenerId,
       connection,
       role: 'listener',
-      username: '' // Will be updated from server
+      username: '', // Will be updated from server
+      iceCandidateBuffer: [] // Initialize empty buffer
     });
 
     // Create and send offer with better error handling
@@ -547,19 +583,38 @@ export class VoiceBroadcastManager {
 
       // Handle incoming stream
       connection.ontrack = async (event) => {
-        console.log(`🎵 [WEBRTC] Received track from speaker ${speakerId} (${speakerUsername}):`, event.track);
+        console.log(`🎵 [WEBRTC] ===== TRACK RECEIVED EVENT FROM SPEAKER =====`);
+        console.log(`🎵 [WEBRTC] Received track from speaker ${speakerId} (${speakerUsername}):`, {
+          track: event.track,
+          kind: event.track.kind,
+          id: event.track.id,
+          label: event.track.label,
+          enabled: event.track.enabled,
+          readyState: event.track.readyState,
+          muted: event.track.muted
+        });
+        
         const [stream] = event.streams;
         if (stream) {
-          console.log(`🎵 [WEBRTC] Received audio stream from speaker ${speakerId}:`, stream);
+          console.log(`🎵 [WEBRTC] Audio stream received from speaker ${speakerId}:`, {
+            streamId: stream.id,
+            active: stream.active,
+            trackCount: stream.getTracks().length
+          });
           console.log(`🎵 [WEBRTC] Stream tracks:`, stream.getTracks().map(t => ({
             id: t.id,
             kind: t.kind,
             enabled: t.enabled,
-            readyState: t.readyState
+            readyState: t.readyState,
+            muted: t.muted
           })));
+          
+          console.log(`🎵 [WEBRTC] Calling addSpeakerStream for speaker ${speakerId}`);
           await this.addSpeakerStream(speakerId, stream);
+          console.log(`🎵 [WEBRTC] ===== TRACK PROCESSING COMPLETE FOR SPEAKER =====`);
         } else {
           console.warn(`⚠️ [WEBRTC] No stream received from speaker ${speakerId}`);
+          console.warn(`⚠️ [WEBRTC] Event streams:`, event.streams);
         }
       };
 
@@ -587,20 +642,35 @@ export class VoiceBroadcastManager {
 
       // Handle ICE connection state changes
       connection.oniceconnectionstatechange = () => {
-        console.log(`🧊 [WEBRTC] ICE connection state for speaker ${speakerId}: ${connection.iceConnectionState}`);
+        const state = connection.iceConnectionState;
+        console.log(`🧊 [WEBRTC] ICE connection state for speaker ${speakerId}: ${state}`);
         
-        if (connection.iceConnectionState === 'failed') {
+        // Log detailed connection info for debugging
+        console.log(`🧊 [WEBRTC] Connection details for speaker ${speakerId}:`, {
+          iceConnectionState: connection.iceConnectionState,
+          connectionState: connection.connectionState,
+          iceGatheringState: connection.iceGatheringState,
+          signalingState: connection.signalingState,
+          localDescription: !!connection.localDescription,
+          remoteDescription: !!connection.remoteDescription
+        });
+        
+        if (state === 'failed') {
           console.error(`❌ [WEBRTC] ICE connection failed for speaker ${speakerId}, attempting recovery`);
           this.attemptConnectionRecovery(speakerId);
-        } else if (connection.iceConnectionState === 'disconnected') {
+        } else if (state === 'disconnected') {
           console.warn(`⚠️ [WEBRTC] ICE connection disconnected for speaker ${speakerId}`);
           // Don't immediately remove, might reconnect
-        } else if (connection.iceConnectionState === 'connected') {
-          console.log(`✅ [WEBRTC] ICE connection established for speaker ${speakerId}`);
-        } else if (connection.iceConnectionState === 'checking') {
+        } else if (state === 'connected') {
+          console.log(`✅ [WEBRTC] ICE connection established for speaker ${speakerId} - AUDIO SHOULD START FLOWING!`);
+        } else if (state === 'checking') {
           console.log(`🔍 [WEBRTC] ICE connection checking for speaker ${speakerId}`);
-        } else if (connection.iceConnectionState === 'completed') {
-          console.log(`🎯 [WEBRTC] ICE connection completed for speaker ${speakerId}`);
+        } else if (state === 'completed') {
+          console.log(`🎯 [WEBRTC] ICE connection completed for speaker ${speakerId} - OPTIMAL CONNECTION ACHIEVED!`);
+        } else if (state === 'new') {
+          console.log(`🆕 [WEBRTC] ICE connection new for speaker ${speakerId}`);
+        } else if (state === 'closed') {
+          console.log(`🔒 [WEBRTC] ICE connection closed for speaker ${speakerId}`);
         }
       };
 
@@ -630,13 +700,19 @@ export class VoiceBroadcastManager {
         id: speakerId,
         connection,
         role: 'speaker',
-        username: speakerUsername
+        username: speakerUsername,
+        iceCandidateBuffer: [] // Initialize empty buffer
       });
 
       // Set remote description and create answer with better error handling
       try {
         console.log(`📥 [WEBRTC] Setting remote description for ${speakerId}`);
         await connection.setRemoteDescription(offer);
+        console.log(`✅ [WEBRTC] Remote description set for ${speakerId}`);
+        
+        // Process any buffered ICE candidates now that remote description is set
+        await this.processPendingIceCandidates(speakerId);
+        
         console.log(`📤 [WEBRTC] Creating answer for ${speakerId}`);
         const answer = await connection.createAnswer({
           offerToReceiveAudio: true,
@@ -680,6 +756,9 @@ export class VoiceBroadcastManager {
       console.log(`📥 [WEBRTC] Setting remote description for peer ${listenerId}`);
       await peer.connection.setRemoteDescription(answer);
       console.log(`✅ [WEBRTC] Remote description set for peer ${listenerId}`);
+      
+      // Process any buffered ICE candidates now that remote description is set
+      await this.processPendingIceCandidates(listenerId);
     } catch (error) {
       console.error(`❌ [WEBRTC] Error handling broadcast answer from ${listenerId}:`, error);
       throw error;
@@ -699,11 +778,53 @@ export class VoiceBroadcastManager {
         return;
       }
 
+      // Check if remote description is set
+      if (!peer.connection.remoteDescription) {
+        console.log(`🧊 [WEBRTC] Remote description not set yet for ${peerId}, buffering ICE candidate`);
+        peer.iceCandidateBuffer.push(candidate);
+        console.log(`🧊 [WEBRTC] ICE candidate buffered for ${peerId} (buffer size: ${peer.iceCandidateBuffer.length})`);
+        return;
+      }
+
       console.log(`🧊 [WEBRTC] Adding ICE candidate for peer ${peerId}`);
       await peer.connection.addIceCandidate(candidate);
       console.log(`✅ [WEBRTC] ICE candidate added for peer ${peerId}`);
     } catch (error) {
       console.error(`❌ [WEBRTC] Error handling ICE candidate from ${peerId}:`, error);
+      
+      // If adding candidate fails, try buffering it for later
+      const peer = this.state.remotePeers.get(peerId);
+      if (peer && error instanceof Error && error.message.includes('remote description')) {
+        console.log(`🧊 [WEBRTC] Buffering failed ICE candidate for ${peerId} due to remote description issue`);
+        peer.iceCandidateBuffer.push(candidate);
+      }
+    }
+  }
+
+  private async processPendingIceCandidates(peerId: string): Promise<void> {
+    try {
+      const peer = this.state.remotePeers.get(peerId);
+      if (!peer || peer.iceCandidateBuffer.length === 0) {
+        return;
+      }
+
+      console.log(`🧊 [WEBRTC] Processing ${peer.iceCandidateBuffer.length} buffered ICE candidates for ${peerId}`);
+      
+      const candidates = [...peer.iceCandidateBuffer]; // Copy array
+      peer.iceCandidateBuffer = []; // Clear buffer
+      
+      for (const candidate of candidates) {
+        try {
+          await peer.connection.addIceCandidate(candidate);
+          console.log(`✅ [WEBRTC] Buffered ICE candidate processed for peer ${peerId}`);
+        } catch (error) {
+          console.error(`❌ [WEBRTC] Failed to process buffered ICE candidate for ${peerId}:`, error);
+        }
+      }
+      
+      console.log(`🧊 [WEBRTC] Finished processing buffered ICE candidates for ${peerId}`);
+    } catch (error) {
+      console.error(`❌ [WEBRTC] Error processing pending ICE candidates for ${peerId}:`, error);
     }
   }
 
@@ -804,12 +925,22 @@ export class VoiceBroadcastManager {
 
   private async addSpeakerStream(speakerId: string, stream: MediaStream): Promise<void> {
     try {
+      console.log(`🎵 [AUDIO] ===== ADDING SPEAKER STREAM =====`);
       console.log(`🎵 [AUDIO] Adding speaker ${speakerId} stream to broadcast manager`);
+      console.log(`🎵 [AUDIO] My socket ID: ${this.socket.id}`);
+      console.log(`🎵 [AUDIO] Speaker ID: ${speakerId}`);
+      console.log(`🎵 [AUDIO] Is this my own stream? ${speakerId === this.socket.id}`);
+      console.log(`🎵 [AUDIO] Stream details:`, {
+        streamId: stream.id,
+        active: stream.active,
+        trackCount: stream.getTracks().length
+      });
       console.log(`🎵 [AUDIO] Stream tracks:`, stream.getTracks().map(t => ({
         id: t.id,
         kind: t.kind,
         enabled: t.enabled,
-        readyState: t.readyState
+        readyState: t.readyState,
+        muted: t.muted
       })));
       
       this.state.speakerStreams.set(speakerId, stream);
@@ -820,6 +951,8 @@ export class VoiceBroadcastManager {
         this.emitStateChange();
         return;
       }
+
+      console.log(`🎵 [AUDIO] Processing remote speaker stream from ${speakerId}`);
 
       // Add to audio mixing for both listeners and speakers (but not our own stream)
       if (this.state.audioContext && this.state.mixedAudioDestination) {
@@ -846,7 +979,10 @@ export class VoiceBroadcastManager {
         
         // Start playing the mixed audio
         console.log(`🔊 [AUDIO] Starting mixed audio playback for speaker ${speakerId}`);
+        console.log(`🔊 [AUDIO] Audio context state: ${this.state.audioContext.state}`);
+        console.log(`🔊 [AUDIO] Mixed audio destination: ${!!this.state.mixedAudioDestination}`);
         await this.startMixedAudioPlayback();
+        console.log(`🔊 [AUDIO] Mixed audio playback started for speaker ${speakerId}`);
       } else {
         console.warn(`⚠️ [AUDIO] Cannot add speaker ${speakerId} to mixer - audio context or destination missing`);
         console.warn(`⚠️ [AUDIO] Audio context: ${!!this.state.audioContext}, Destination: ${!!this.state.mixedAudioDestination}`);
