@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Anonymous peer-to-peer chat application",
   "private": true,
+  "type": "module",
   "workspaces": [
     "frontend",
     "backend"
