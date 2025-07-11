@@ -123,11 +123,6 @@ app.get('/health', (_req, res) => {
 
 // Health check endpoint alias (for frontend compatibility)
 app.get('/health-check', (_req, res) => {
-  // Add CORS headers for health check
-  res.header('Access-Control-Allow-Origin', '*')
-  res.header('Access-Control-Allow-Methods', 'GET')
-  res.header('Access-Control-Allow-Headers', 'Content-Type')
-  
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),

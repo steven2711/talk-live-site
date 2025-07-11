@@ -1,0 +1,56 @@
+git pull (to pull in latest changes)
+
+sudo docker-compose build --no-cache backend (for buildng the image in the droplet)
+
+sudo docker-compose down (to stop the compose server)
+
+sudo docker-compose up -d backend (start up compose)
+
+if docker-compose is up successfully:
+
+docker-compose up -d nginx
+
+
+
+
+
+
+
+
+Helpers:
+
+sudo docker-compose logs backend (see compose logs)
+
+sudo docker-compose logs nginx (see https logs)
+
+
+
+# Pull the latest code
+git pull origin main
+
+# Rebuild only the backend container
+sudo docker-compose build --no-cache backend
+
+# Restart only the backend (nginx keeps running)
+sudo docker-compose up -d --no-deps backend
+
+# Check the new backend is healthy
+sudo docker-compose ps backend
+curl http://localhost:3001/health
+
+
+Rolling Update # Pull latest code
+git pull origin main
+
+# Build new backend image
+sudo docker-compose build --no-cache backend
+
+# Start new backend container with different name
+sudo docker-compose up -d --no-deps --scale backend=2 backend
+
+# Wait for new container to be healthy
+sleep 10
+curl http://localhost:3001/health
+
+# Stop old container
+sudo docker-compose up -d --no-deps --scale backend=1 backend
