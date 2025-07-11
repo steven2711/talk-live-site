@@ -25,16 +25,21 @@ export class VoiceBroadcastManager {
   private socket: any;
   private userInteractionHandler?: (event: Event) => void;
   private iceServers: RTCIceServer[] = [
-    // Multiple STUN servers for better reliability
+    // Google STUN servers (most reliable)
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' },
     
-    // Multiple TURN servers for NAT traversal
+    // Mozilla STUN servers (backup)
+    { urls: 'stun:stun.services.mozilla.com' },
+    
+    // OpenRelay TURN servers with UDP (better for audio)
     { 
       urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    { 
+      urls: 'turn:openrelay.metered.ca:80?transport=udp',
       username: 'openrelayproject',
       credential: 'openrelayproject'
     },
@@ -49,16 +54,33 @@ export class VoiceBroadcastManager {
       credential: 'openrelayproject'
     },
     
-    // Additional reliable TURN servers
+    // Backup TURN servers
     { 
       urls: 'turn:relay.metered.ca:80',
       username: 'openrelayproject',
       credential: 'openrelayproject'
     },
     { 
-      urls: 'turn:relay.metered.ca:443',
+      urls: 'turn:relay.metered.ca:80?transport=udp',
       username: 'openrelayproject',
       credential: 'openrelayproject'
+    },
+    
+    // Additional public TURN servers for better reliability
+    {
+      urls: 'turn:numb.viagenie.ca',
+      username: 'webrtc@live.com',
+      credential: 'muazkh'
+    },
+    {
+      urls: 'turn:numb.viagenie.ca:3478?transport=udp',
+      username: 'webrtc@live.com', 
+      credential: 'muazkh'
+    },
+    {
+      urls: 'turn:turn.bistri.com:80',
+      username: 'homeo',
+      credential: 'homeo'
     }
   ];
 
@@ -100,6 +122,27 @@ export class VoiceBroadcastManager {
       peerId: string 
     }) => {
       await this.handleIceCandidate(data.candidate, data.peerId);
+    });
+
+    // Handle listener ready event (CRITICAL FIX: This was missing!)
+    this.socket.on('listener_ready', async (data: { 
+      listenerId: string, 
+      listenerUsername: string 
+    }) => {
+      console.log(`🎧 [WEBRTC] Listener ${data.listenerUsername} (${data.listenerId}) is ready to receive audio`);
+      
+      // Only create connection if we're a speaker
+      if (this.state.role === 'speaker' && this.state.isActive) {
+        try {
+          console.log(`🎧 [WEBRTC] Creating connection to ready listener ${data.listenerId}`);
+          await this.createSpeakerConnection(data.listenerId);
+          console.log(`✅ [WEBRTC] Connection created for ready listener ${data.listenerId}`);
+        } catch (error) {
+          console.error(`❌ [WEBRTC] Failed to create connection for ready listener ${data.listenerId}:`, error);
+        }
+      } else {
+        console.log(`🎧 [WEBRTC] Ignoring listener_ready - not a speaker (role: ${this.state.role}, active: ${this.state.isActive})`);
+      }
     });
 
     // Handle speaker promotion
@@ -363,11 +406,21 @@ export class VoiceBroadcastManager {
     // Handle ICE candidates with detailed logging
     connection.onicecandidate = (event) => {
       if (event.candidate) {
-        console.log(`🧊 [WEBRTC] Sending ICE candidate to ${listenerId}:`, {
+        // Analyze candidate type for debugging
+        const candidateString = event.candidate.candidate;
+        let candidateType = 'unknown';
+        if (candidateString.includes('typ host')) candidateType = 'host';
+        else if (candidateString.includes('typ srflx')) candidateType = 'server-reflexive (STUN)';
+        else if (candidateString.includes('typ prflx')) candidateType = 'peer-reflexive';
+        else if (candidateString.includes('typ relay')) candidateType = 'relay (TURN)';
+        
+        console.log(`🧊 [WEBRTC] ICE candidate [${candidateType}] for ${listenerId}:`, {
+          type: candidateType,
           candidate: event.candidate.candidate,
           sdpMLineIndex: event.candidate.sdpMLineIndex,
           sdpMid: event.candidate.sdpMid
         });
+        
         this.socket.emit('broadcast_ice_candidate', {
           candidate: event.candidate,
           peerId: listenerId
@@ -380,6 +433,12 @@ export class VoiceBroadcastManager {
     // Handle ICE gathering state changes
     connection.onicegatheringstatechange = () => {
       console.log(`🧊 [WEBRTC] ICE gathering state for ${listenerId}: ${connection.iceGatheringState}`);
+      
+      // Debug: Log when gathering completes
+      if (connection.iceGatheringState === 'complete') {
+        console.log(`🧊 [WEBRTC] ICE candidate gathering completed for ${listenerId}`);
+        console.log(`🧊 [WEBRTC] Local description:`, connection.localDescription);
+      }
     };
 
     // Handle ICE connection state changes

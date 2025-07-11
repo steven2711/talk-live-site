@@ -322,7 +322,7 @@ export function setupVoiceRoomSocketHandlers(io: TypedServer, voiceRoomManager: 
           return
         }
 
-        logger.debug(`User ${user.username} (${user.id}) ready to listen to speakers: ${data.speakerIds.join(', ')}`)
+        logger.info(`🎧 [WEBRTC] User ${user.username} (${user.id}) ready to listen to speakers: ${data.speakerIds.join(', ')}`)
 
         // For each speaker, notify them that this listener is ready
         data.speakerIds.forEach(speakerId => {
@@ -334,7 +334,7 @@ export function setupVoiceRoomSocketHandlers(io: TypedServer, voiceRoomManager: 
               listenerId: user.id,
               listenerUsername: user.username
             })
-            logger.debug(`Notified speaker ${speakerId} that listener ${user.id} is ready`)
+            logger.info(`🎧 [WEBRTC] Notified speaker ${speakerId} that listener ${user.id} is ready`)
           } else {
             logger.warn(`Speaker ${speakerId} not found for ready_to_listen notification`)
           }
@@ -354,7 +354,7 @@ export function setupVoiceRoomSocketHandlers(io: TypedServer, voiceRoomManager: 
           return
         }
 
-        logger.debug(`WebRTC offer from ${user.username} (${user.id}) to ${data.listenerId}`)
+        logger.info(`🎤 [WEBRTC] Offer from ${user.username} (${user.id}) to ${data.listenerId}`)
 
         // Find the target user's socket
         const targetUser = Array.from(io.sockets.sockets.values())
@@ -367,7 +367,7 @@ export function setupVoiceRoomSocketHandlers(io: TypedServer, voiceRoomManager: 
             speakerId: user.id,
             speakerUsername: user.username
           })
-          logger.debug(`WebRTC offer forwarded to ${data.listenerId}`)
+          logger.info(`🎤 [WEBRTC] Offer forwarded to ${data.listenerId}`)
         } else {
           logger.warn(`Target user ${data.listenerId} not found for WebRTC offer`)
         }
@@ -386,7 +386,7 @@ export function setupVoiceRoomSocketHandlers(io: TypedServer, voiceRoomManager: 
           return
         }
 
-        logger.debug(`WebRTC answer from ${user.username} (${user.id}) to ${data.speakerId}`)
+        logger.info(`🎧 [WEBRTC] Answer from ${user.username} (${user.id}) to ${data.speakerId}`)
 
         // Find the target speaker's socket
         const targetUser = Array.from(io.sockets.sockets.values())
@@ -398,7 +398,7 @@ export function setupVoiceRoomSocketHandlers(io: TypedServer, voiceRoomManager: 
             answer: data.answer,
             listenerId: user.id
           })
-          logger.debug(`WebRTC answer forwarded to ${data.speakerId}`)
+          logger.info(`🎧 [WEBRTC] Answer forwarded to ${data.speakerId}`)
         } else {
           logger.warn(`Target speaker ${data.speakerId} not found for WebRTC answer`)
         }
@@ -417,7 +417,7 @@ export function setupVoiceRoomSocketHandlers(io: TypedServer, voiceRoomManager: 
           return
         }
 
-        logger.debug(`WebRTC ICE candidate from ${user.username} (${user.id}) to ${data.peerId}`)
+        logger.info(`🧊 [WEBRTC] ICE candidate from ${user.username} (${user.id}) to ${data.peerId}`)
 
         // Find the target peer's socket
         const targetUser = Array.from(io.sockets.sockets.values())
@@ -429,7 +429,7 @@ export function setupVoiceRoomSocketHandlers(io: TypedServer, voiceRoomManager: 
             candidate: data.candidate,
             peerId: user.id
           })
-          logger.debug(`WebRTC ICE candidate forwarded to ${data.peerId}`)
+          logger.info(`🧊 [WEBRTC] ICE candidate forwarded to ${data.peerId}`)
         } else {
           logger.warn(`Target peer ${data.peerId} not found for WebRTC ICE candidate`)
         }
