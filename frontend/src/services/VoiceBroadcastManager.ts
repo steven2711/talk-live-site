@@ -97,6 +97,7 @@ export class VoiceBroadcastManager {
 
     this.setupSocketHandlers();
     this.startConnectionHealthMonitoring();
+    this.runNetworkDiagnostics();
   }
 
   private setupSocketHandlers(): void {
@@ -1490,6 +1491,319 @@ export class VoiceBroadcastManager {
       }
     } catch (resumeError) {
       console.error('Failed to resume audio context:', resumeError);
+    }
+  }
+
+  /**
+   * Run comprehensive network diagnostics to identify connectivity issues
+   */
+  private async runNetworkDiagnostics(): Promise<void> {
+    console.log('🔍 [NETWORK-DIAGNOSTICS] Starting comprehensive network diagnostics...');
+    
+    try {
+      // Test 1: Basic connectivity check
+      await this.testBasicConnectivity();
+      
+      // Test 2: STUN server connectivity
+      await this.testStunServers();
+      
+      // Test 3: TURN server connectivity  
+      await this.testTurnServers();
+      
+      // Test 4: NAT type detection
+      await this.detectNatType();
+      
+      // Test 5: WebRTC connectivity test
+      await this.testWebRTCConnectivity();
+      
+      console.log('✅ [NETWORK-DIAGNOSTICS] Network diagnostics complete');
+    } catch (error) {
+      console.error('❌ [NETWORK-DIAGNOSTICS] Network diagnostics failed:', error);
+    }
+  }
+
+  /**
+   * Test basic internet connectivity
+   */
+  private async testBasicConnectivity(): Promise<void> {
+    console.log('🔍 [CONNECTIVITY] Testing basic internet connectivity...');
+    
+    try {
+      await fetch('https://www.google.com/favicon.ico', {
+        method: 'HEAD',
+        mode: 'no-cors',
+        cache: 'no-cache'
+      });
+      console.log('✅ [CONNECTIVITY] Basic internet connectivity: OK');
+    } catch (error) {
+      console.error('❌ [CONNECTIVITY] Basic internet connectivity failed:', error);
+    }
+  }
+
+  /**
+   * Test STUN server connectivity
+   */
+  private async testStunServers(): Promise<void> {
+    console.log('🔍 [STUN-TEST] Testing STUN server connectivity...');
+    
+    const stunServers = this.iceServers.filter(server => 
+      server.urls.toString().includes('stun:')
+    );
+    
+    for (const stunServer of stunServers) {
+      try {
+        const startTime = Date.now();
+        const pc = new RTCPeerConnection({ iceServers: [stunServer] });
+        
+        let resolved = false;
+        const timeout = setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            console.warn(`⚠️ [STUN-TEST] STUN server ${stunServer.urls} timeout after 5s`);
+            pc.close();
+          }
+        }, 5000);
+        
+        pc.onicecandidate = (event) => {
+          if (event.candidate && !resolved) {
+            resolved = true;
+            clearTimeout(timeout);
+            const responseTime = Date.now() - startTime;
+            console.log(`✅ [STUN-TEST] STUN server ${stunServer.urls} responsive (${responseTime}ms)`);
+            console.log(`🔍 [STUN-TEST] Received candidate: ${event.candidate.candidate}`);
+            pc.close();
+          }
+        };
+        
+        // Create a dummy offer to trigger ICE gathering
+        await pc.createOffer();
+      } catch (error) {
+        console.error(`❌ [STUN-TEST] STUN server ${stunServer.urls} failed:`, error);
+      }
+    }
+  }
+
+  /**
+   * Test TURN server connectivity
+   */
+  private async testTurnServers(): Promise<void> {
+    console.log('🔍 [TURN-TEST] Testing TURN server connectivity...');
+    
+    const turnServers = this.iceServers.filter(server => 
+      server.urls.toString().includes('turn:')
+    );
+    
+    for (const turnServer of turnServers) {
+      try {
+        const startTime = Date.now();
+        const pc = new RTCPeerConnection({ 
+          iceServers: [turnServer],
+          iceTransportPolicy: 'relay' // Force TURN usage
+        });
+        
+        let resolved = false;
+        const timeout = setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            console.warn(`⚠️ [TURN-TEST] TURN server ${turnServer.urls} timeout after 10s`);
+            pc.close();
+          }
+        }, 10000);
+        
+        pc.onicecandidate = (event) => {
+          if (event.candidate && !resolved) {
+            resolved = true;
+            clearTimeout(timeout);
+            const responseTime = Date.now() - startTime;
+            
+            // Check if this is actually a TURN candidate
+            const candidateString = event.candidate.candidate;
+            if (candidateString.includes('typ relay')) {
+              console.log(`✅ [TURN-TEST] TURN server ${turnServer.urls} working (${responseTime}ms)`);
+              console.log(`🔍 [TURN-TEST] TURN candidate: ${candidateString}`);
+            } else {
+              console.warn(`⚠️ [TURN-TEST] TURN server ${turnServer.urls} returned non-relay candidate: ${candidateString}`);
+            }
+            pc.close();
+          }
+        };
+        
+        // Create a dummy offer to trigger ICE gathering
+        await pc.createOffer();
+      } catch (error) {
+        console.error(`❌ [TURN-TEST] TURN server ${turnServer.urls} failed:`, error);
+      }
+    }
+  }
+
+  /**
+   * Detect NAT type using ICE candidates
+   */
+  private async detectNatType(): Promise<void> {
+    console.log('🔍 [NAT-DETECTION] Detecting NAT type...');
+    
+    try {
+      const pc = new RTCPeerConnection({ iceServers: this.iceServers });
+      const candidates: RTCIceCandidate[] = [];
+      
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          candidates.push(event.candidate);
+        } else {
+          // ICE gathering complete, analyze candidates
+          this.analyzeNatType(candidates);
+          pc.close();
+        }
+      };
+      
+      // Create offer to start ICE gathering
+      await pc.createOffer();
+      
+      // Timeout after 15 seconds
+      setTimeout(() => {
+        if (candidates.length > 0) {
+          this.analyzeNatType(candidates);
+        } else {
+          console.warn('⚠️ [NAT-DETECTION] No ICE candidates received - severe NAT restrictions');
+        }
+        pc.close();
+      }, 15000);
+      
+    } catch (error) {
+      console.error('❌ [NAT-DETECTION] NAT type detection failed:', error);
+    }
+  }
+
+  /**
+   * Analyze NAT type from ICE candidates
+   */
+  private analyzeNatType(candidates: RTCIceCandidate[]): void {
+    console.log(`🔍 [NAT-ANALYSIS] Analyzing ${candidates.length} ICE candidates...`);
+    
+    let hasHost = false;
+    let hasSrflx = false;
+    let hasRelay = false;
+    
+    candidates.forEach(candidate => {
+      const candidateString = candidate.candidate;
+      console.log(`🔍 [NAT-ANALYSIS] Candidate: ${candidateString}`);
+      
+      if (candidateString.includes('typ host')) {
+        hasHost = true;
+      } else if (candidateString.includes('typ srflx')) {
+        hasSrflx = true;
+      } else if (candidateString.includes('typ relay')) {
+        hasRelay = true;
+      }
+    });
+    
+    // Determine NAT type
+    let natType = 'Unknown';
+    let recommendation = '';
+    
+    if (hasHost && hasSrflx) {
+      natType = 'Cone NAT (Good)';
+      recommendation = 'Direct peer connections should work';
+    } else if (hasHost && !hasSrflx) {
+      natType = 'Open Internet (Excellent)';
+      recommendation = 'No NAT restrictions';
+    } else if (!hasHost && hasSrflx) {
+      natType = 'Symmetric NAT (Moderate)';
+      recommendation = 'May need TURN server for some connections';
+    } else if (hasRelay && !hasSrflx) {
+      natType = 'Symmetric NAT (Restrictive)';
+      recommendation = 'TURN server required for connections';
+    } else {
+      natType = 'Severe NAT (Poor)';
+      recommendation = 'Connection may be difficult or impossible';
+    }
+    
+    console.log(`🔍 [NAT-ANALYSIS] NAT Type: ${natType}`);
+    console.log(`🔍 [NAT-ANALYSIS] Recommendation: ${recommendation}`);
+    console.log(`🔍 [NAT-ANALYSIS] Candidates - Host: ${hasHost}, Server-Reflexive: ${hasSrflx}, Relay: ${hasRelay}`);
+  }
+
+  /**
+   * Test WebRTC connectivity with a self-connection
+   */
+  private async testWebRTCConnectivity(): Promise<void> {
+    console.log('🔍 [WEBRTC-TEST] Testing WebRTC connectivity...');
+    
+    try {
+      const pc1 = new RTCPeerConnection({ iceServers: this.iceServers });
+      const pc2 = new RTCPeerConnection({ iceServers: this.iceServers });
+      
+      let pc1Connected = false;
+      let pc2Connected = false;
+      
+      // Monitor connection states
+      pc1.oniceconnectionstatechange = () => {
+        console.log(`🔍 [WEBRTC-TEST] PC1 ICE state: ${pc1.iceConnectionState}`);
+        if (pc1.iceConnectionState === 'connected' || pc1.iceConnectionState === 'completed') {
+          pc1Connected = true;
+          if (pc2Connected) {
+            console.log('✅ [WEBRTC-TEST] WebRTC connectivity test successful');
+            this.cleanupTestConnections(pc1, pc2);
+          }
+        }
+      };
+      
+      pc2.oniceconnectionstatechange = () => {
+        console.log(`🔍 [WEBRTC-TEST] PC2 ICE state: ${pc2.iceConnectionState}`);
+        if (pc2.iceConnectionState === 'connected' || pc2.iceConnectionState === 'completed') {
+          pc2Connected = true;
+          if (pc1Connected) {
+            console.log('✅ [WEBRTC-TEST] WebRTC connectivity test successful');
+            this.cleanupTestConnections(pc1, pc2);
+          }
+        }
+      };
+      
+      // Set up ICE candidate exchange
+      pc1.onicecandidate = (event) => {
+        if (event.candidate) {
+          pc2.addIceCandidate(event.candidate);
+        }
+      };
+      
+      pc2.onicecandidate = (event) => {
+        if (event.candidate) {
+          pc1.addIceCandidate(event.candidate);
+        }
+      };
+      
+      // Create offer/answer exchange
+      const offer = await pc1.createOffer();
+      await pc1.setLocalDescription(offer);
+      await pc2.setRemoteDescription(offer);
+      
+      const answer = await pc2.createAnswer();
+      await pc2.setLocalDescription(answer);
+      await pc1.setRemoteDescription(answer);
+      
+      // Timeout after 30 seconds
+      setTimeout(() => {
+        if (!pc1Connected || !pc2Connected) {
+          console.error('❌ [WEBRTC-TEST] WebRTC connectivity test failed - connection timeout');
+          console.error(`❌ [WEBRTC-TEST] PC1 state: ${pc1.iceConnectionState}, PC2 state: ${pc2.iceConnectionState}`);
+        }
+        this.cleanupTestConnections(pc1, pc2);
+      }, 30000);
+      
+    } catch (error) {
+      console.error('❌ [WEBRTC-TEST] WebRTC connectivity test failed:', error);
+    }
+  }
+
+  /**
+   * Clean up test connections
+   */
+  private cleanupTestConnections(pc1: RTCPeerConnection, pc2: RTCPeerConnection): void {
+    try {
+      pc1.close();
+      pc2.close();
+    } catch (error) {
+      console.error('Error cleaning up test connections:', error);
     }
   }
 
