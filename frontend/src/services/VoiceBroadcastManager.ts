@@ -5,6 +5,7 @@ export interface BroadcastPeer {
   stream?: MediaStream;
   role: 'speaker' | 'listener';
   username: string;
+  stuckSince?: number; // Timestamp for stuck connection detection
 }
 
 export interface BroadcastState {
@@ -345,9 +346,16 @@ export class VoiceBroadcastManager {
     if (this.state.localStream) {
       console.log(`🔗 [WEBRTC] Adding local stream tracks to connection for ${listenerId}`);
       this.state.localStream.getTracks().forEach(track => {
-        console.log(`🔗 [WEBRTC] Adding track ${track.kind} to ${listenerId}:`, track);
+        console.log(`🔗 [WEBRTC] Adding track ${track.kind} to ${listenerId}:`, {
+          id: track.id,
+          label: track.label,
+          enabled: track.enabled,
+          readyState: track.readyState,
+          muted: track.muted
+        });
         connection.addTrack(track, this.state.localStream!);
       });
+      console.log(`✅ [WEBRTC] Added ${this.state.localStream.getTracks().length} tracks to connection for ${listenerId}`);
     } else {
       console.warn(`⚠️ [WEBRTC] No local stream available to add to connection for ${listenerId}`);
     }
@@ -386,6 +394,28 @@ export class VoiceBroadcastManager {
         // Don't immediately remove, might reconnect
       } else if (connection.iceConnectionState === 'connected') {
         console.log(`✅ [WEBRTC] ICE connection established for ${listenerId}`);
+      } else if (connection.iceConnectionState === 'checking') {
+        console.log(`🔍 [WEBRTC] ICE connection checking for ${listenerId}`);
+      } else if (connection.iceConnectionState === 'completed') {
+        console.log(`🎯 [WEBRTC] ICE connection completed for ${listenerId}`);
+      }
+    };
+
+    // Handle track events (CRITICAL: This was missing for speakers!)
+    connection.ontrack = (event) => {
+      console.log(`🎵 [WEBRTC] Track received from speaker ${listenerId}:`, event.track);
+      const [stream] = event.streams;
+      if (stream) {
+        console.log(`🎵 [WEBRTC] Audio stream received from speaker ${listenerId}:`, stream);
+        console.log(`🎵 [WEBRTC] Stream tracks:`, stream.getTracks().map(t => ({
+          id: t.id,
+          kind: t.kind,
+          enabled: t.enabled,
+          readyState: t.readyState
+        })));
+        this.addSpeakerStream(listenerId, stream);
+      } else {
+        console.warn(`⚠️ [WEBRTC] No stream received with track from speaker ${listenerId}`);
       }
     };
 
@@ -508,6 +538,10 @@ export class VoiceBroadcastManager {
           // Don't immediately remove, might reconnect
         } else if (connection.iceConnectionState === 'connected') {
           console.log(`✅ [WEBRTC] ICE connection established for speaker ${speakerId}`);
+        } else if (connection.iceConnectionState === 'checking') {
+          console.log(`🔍 [WEBRTC] ICE connection checking for speaker ${speakerId}`);
+        } else if (connection.iceConnectionState === 'completed') {
+          console.log(`🎯 [WEBRTC] ICE connection completed for speaker ${speakerId}`);
         }
       };
 
@@ -1195,10 +1229,39 @@ export class VoiceBroadcastManager {
    * Monitor connection health and prevent users from dropping
    */
   private startConnectionHealthMonitoring(): void {
-    // Check connection health every 30 seconds
+    // Check connection health every 15 seconds for faster detection
     setInterval(() => {
       this.checkConnectionHealth();
-    }, 30000);
+    }, 15000);
+    
+    // Check for stuck connections more aggressively
+    setInterval(() => {
+      this.checkStuckConnections();
+    }, 10000);
+  }
+
+  /**
+   * Check for connections stuck in "connecting" state
+   */
+  private checkStuckConnections(): void {
+    this.state.remotePeers.forEach((peer, peerId) => {
+      const connectionState = peer.connection.connectionState;
+      const iceConnectionState = peer.connection.iceConnectionState;
+      
+      // If connection has been "connecting" for too long, restart it
+      if (connectionState === 'connecting' || iceConnectionState === 'checking') {
+        // Add a timestamp to track how long it's been stuck
+        if (!peer.stuckSince) {
+          peer.stuckSince = Date.now();
+        } else if (Date.now() - peer.stuckSince > 20000) { // 20 seconds
+          console.warn(`🔄 [WEBRTC] Connection to ${peerId} stuck in ${connectionState}/${iceConnectionState} for 20s, restarting`);
+          this.attemptConnectionRecovery(peerId);
+        }
+      } else {
+        // Clear stuck timestamp if connection progressed
+        delete peer.stuckSince;
+      }
+    });
   }
 
   /**
@@ -1207,10 +1270,11 @@ export class VoiceBroadcastManager {
   private checkConnectionHealth(): void {
     this.state.remotePeers.forEach((peer, peerId) => {
       const connectionState = peer.connection.connectionState;
-      console.log(`Connection health check for ${peerId}: ${connectionState}`);
+      const iceConnectionState = peer.connection.iceConnectionState;
+      console.log(`🔍 [HEALTH] Connection health check for ${peerId}: ${connectionState}/${iceConnectionState}`);
       
-      if (connectionState === 'failed' || connectionState === 'disconnected') {
-        console.log(`Unhealthy connection detected for ${peerId}, attempting recovery`);
+      if (connectionState === 'failed' || connectionState === 'disconnected' || iceConnectionState === 'failed') {
+        console.log(`🚨 [HEALTH] Unhealthy connection detected for ${peerId}, attempting recovery`);
         this.attemptConnectionRecovery(peerId);
       }
     });
