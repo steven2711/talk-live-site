@@ -318,12 +318,14 @@ export class GlobalVoiceRoomManager {
   async startListening(): Promise<void> {
     try {
       if (!this.roomState) {
+        console.error('❌ startListening: Not in a voice room')
         throw new Error('Not in a voice room')
       }
 
       console.log('🎧 DEBUG: startListening() called')
       console.log('🎧 DEBUG: Current user:', this.currentUser)
       console.log('🎧 DEBUG: Room state:', this.roomState)
+      console.log('🎧 DEBUG: VoiceBroadcastManager available:', !!this.voiceBroadcastManager)
       console.log('Starting to listen...')
 
       // Get list of OTHER speaker IDs (excluding ourselves if we're also a speaker)
@@ -337,12 +339,12 @@ export class GlobalVoiceRoomManager {
       if (otherSpeakerIds.length > 0) {
         console.log(`🎧 DEBUG: Calling voiceBroadcastManager.startListening() with IDs:`, otherSpeakerIds)
         await this.voiceBroadcastManager.startListening(otherSpeakerIds)
-        console.log(`Started listening to ${otherSpeakerIds.length} other speakers`)
+        console.log(`✅ Started listening to ${otherSpeakerIds.length} other speakers`)
       } else {
-        console.log('🎧 DEBUG: No other speakers to listen to')
+        console.log('🎧 DEBUG: No other speakers to listen to yet')
       }
     } catch (error) {
-      console.error('Failed to start listening:', error)
+      console.error('❌ Failed to start listening:', error)
       this.emit('error', `Failed to start listening: ${error instanceof Error ? error.message : String(error)}`)
       throw error
     }
@@ -461,7 +463,7 @@ export class GlobalVoiceRoomManager {
   private setupSocketHandlers(): void {
     // Voice room events
     this.socket.on('voice_room_joined', (roomState: VoiceRoomState) => {
-      console.log('Joined voice room:', roomState)
+      console.log('🎭 DEBUG: voice_room_joined event received:', roomState)
       this.roomState = roomState
       this.emit('roomJoined', roomState)
 
@@ -471,23 +473,46 @@ export class GlobalVoiceRoomManager {
       // Start listening if we're a listener OR a speaker (speakers need to hear other speakers)
       const currentRole = this.getCurrentUserRole()
       console.log(`🎭 DEBUG: Joined voice room, current role: ${currentRole}`)
+      console.log(`🎭 DEBUG: Current user:`, this.currentUser)
       console.log(`🎭 DEBUG: Room state on join:`, roomState)
+      console.log(`🎭 DEBUG: VoiceRoomRole.SPEAKER value:`, VoiceRoomRole.SPEAKER)
+      console.log(`🎭 DEBUG: VoiceRoomRole.LISTENER value:`, VoiceRoomRole.LISTENER)
       
       if (currentRole === VoiceRoomRole.SPEAKER) {
         console.log(`🎤 DEBUG: I'm a speaker, calling startSpeaking()`)
-        this.startSpeaking().catch(console.error)
+        this.startSpeaking().catch(error => {
+          console.error('❌ Error in startSpeaking():', error)
+        })
+      } else {
+        console.log(`🎭 DEBUG: Not a speaker, role is: ${currentRole}`)
       }
       
       if (currentRole === VoiceRoomRole.LISTENER || currentRole === VoiceRoomRole.SPEAKER) {
         console.log(`👂 DEBUG: Starting to listen (role: ${currentRole})`)
-        this.startListening().catch(console.error)
+        this.startListening().catch(error => {
+          console.error('❌ Error in startListening():', error)
+        })
+      } else {
+        console.log(`🎭 DEBUG: Not listening, role is: ${currentRole}`)
       }
     })
 
     this.socket.on('voice_room_updated', (roomState: VoiceRoomState) => {
-      console.log('Voice room updated:', roomState)
+      console.log('🏠 Voice room updated:', roomState)
+      console.log(`🏠 Speakers: ${roomState.speakers.length}, Listeners: ${roomState.listeners.length}`)
+      roomState.speakers.forEach(speaker => {
+        console.log(`🏠 Speaker: ${speaker.user.username} (${speaker.user.id})`)
+      })
+      
       this.roomState = roomState
       this.emit('roomUpdated', roomState)
+      
+      // If we're a speaker, check if we need to connect to new speakers
+      const currentRole = this.getCurrentUserRole()
+      if (currentRole === VoiceRoomRole.SPEAKER) {
+        console.log('🔄 Speaker detected room update, checking for new connections needed')
+        this.handleSpeakerRoomUpdate().catch(console.error)
+      }
     })
 
     this.socket.on(
@@ -627,6 +652,36 @@ export class GlobalVoiceRoomManager {
         this.audioStreamManager.resume().catch(console.error)
       }
     }, 100) // Update every 100ms
+  }
+
+  /**
+   * Handle room updates for speakers to establish new connections
+   */
+  private async handleSpeakerRoomUpdate(): Promise<void> {
+    try {
+      if (!this.roomState || !this.currentUser) {
+        console.log('🔄 No room state or current user, skipping speaker room update')
+        return
+      }
+
+      // Get list of other speakers (excluding ourselves)
+      const otherSpeakers = this.roomState.speakers.filter(
+        speaker => speaker.user.id !== this.currentUser!.id
+      )
+
+      console.log(`🔄 Found ${otherSpeakers.length} other speakers to potentially connect to`)
+      otherSpeakers.forEach(speaker => {
+        console.log(`🔄 Other speaker: ${speaker.user.username} (${speaker.user.id})`)
+      })
+
+      if (otherSpeakers.length > 0) {
+        // We need to listen to other speakers
+        console.log('🔄 Starting to listen to other speakers due to room update')
+        await this.startListening()
+      }
+    } catch (error) {
+      console.error('❌ Error handling speaker room update:', error)
+    }
   }
 
   private emit<K extends keyof VoiceRoomManagerEvents>(
