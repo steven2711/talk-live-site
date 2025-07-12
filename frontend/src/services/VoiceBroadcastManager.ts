@@ -83,6 +83,12 @@ export class VoiceBroadcastManager {
     this.setupSocketHandlers()
     this.startConnectionHealthMonitoring()
     this.runNetworkDiagnostics()
+    
+    // Expose test function to window for debugging
+    if (typeof window !== 'undefined') {
+      ;(window as any).testAudioPlayback = (speakerId: string) => this.testDirectAudioPlayback(speakerId)
+      ;(window as any).voiceBroadcastManager = this
+    }
   }
 
   private setupSocketHandlers(): void {
@@ -1156,6 +1162,23 @@ export class VoiceBroadcastManager {
         `🎵 [AUDIO] Processing remote speaker stream from ${speakerId}`
       )
 
+      // Check if stream has audio
+      const audioTracks = stream.getAudioTracks()
+      if (audioTracks.length === 0) {
+        console.error(`❌ [AUDIO] No audio tracks in stream from ${speakerId}`)
+        return
+      }
+
+      // Debug audio track
+      const audioTrack = audioTracks[0]
+      console.log(`🎵 [AUDIO-DEBUG] Audio track from ${speakerId}:`, {
+        id: audioTrack.id,
+        enabled: audioTrack.enabled,
+        muted: audioTrack.muted,
+        readyState: audioTrack.readyState,
+        settings: audioTrack.getSettings(),
+      })
+
       // Add to audio mixing for both listeners and speakers (but not our own stream)
       if (this.state.audioContext && this.state.mixedAudioDestination) {
         console.log(
@@ -1168,20 +1191,29 @@ export class VoiceBroadcastManager {
         const source = this.state.audioContext.createMediaStreamSource(stream)
         const gainNode = this.state.audioContext.createGain()
 
-        // Set equal volume for both speakers
-        gainNode.gain.value = 0.5
+        // Set full volume initially
+        gainNode.gain.value = 1.0
         console.log(
           `🎵 [AUDIO] Created audio nodes for speaker ${speakerId}, gain: ${gainNode.gain.value}`
         )
 
+        // Create analyser node for monitoring
+        const analyser = this.state.audioContext.createAnalyser()
+        analyser.fftSize = 256
+
         // Store gain node for later reference
         this.state.gainNodes.set(speakerId, gainNode)
 
-        source.connect(gainNode)
+        // Connect with analyser
+        source.connect(analyser)
+        analyser.connect(gainNode)
         gainNode.connect(this.state.mixedAudioDestination)
         console.log(
           `🎵 [AUDIO] Connected speaker ${speakerId} to audio mixer destination`
         )
+
+        // Monitor audio levels
+        this.monitorAudioLevels(speakerId, analyser)
 
         console.log(`✅ [AUDIO] Added speaker ${speakerId} to audio mix`)
 
@@ -1325,12 +1357,34 @@ export class VoiceBroadcastManager {
       // Ensure audio context is running before attempting playback
       await this.ensureAudioContextRunning()
 
+      // Debug audio context state
+      console.log('🔊 [AUDIO-DEBUG] Audio context state:', this.state.audioContext?.state)
+      console.log('🔊 [AUDIO-DEBUG] Audio context sample rate:', this.state.audioContext?.sampleRate)
+      console.log('🔊 [AUDIO-DEBUG] Mixed destination channels:', this.state.mixedAudioDestination?.channelCount)
+
+      // Ensure audio element is properly configured
+      this.state.audioElement.muted = false
+      this.state.audioElement.volume = 1.0
+
       // Set up the audio element
       this.state.audioElement.srcObject =
         this.state.mixedAudioDestination.stream
       console.log(
         '🔊 [AUDIO-PLAYBACK] Set audio element srcObject to mixed stream'
       )
+
+      // Debug stream tracks
+      const audioTracks = this.state.mixedAudioDestination.stream.getAudioTracks()
+      console.log('🔊 [AUDIO-DEBUG] Mixed stream audio tracks:', audioTracks.length)
+      audioTracks.forEach((track, i) => {
+        console.log(`🔊 [AUDIO-DEBUG] Track ${i}:`, {
+          id: track.id,
+          enabled: track.enabled,
+          muted: track.muted,
+          readyState: track.readyState,
+          settings: track.getSettings(),
+        })
+      })
 
       // Monitor playback
       this.setupAudioPlaybackMonitoring()
@@ -1469,6 +1523,66 @@ export class VoiceBroadcastManager {
   }
 
   /**
+   * Monitor audio levels from a speaker
+   */
+  private monitorAudioLevels(speakerId: string, analyser: AnalyserNode): void {
+    const dataArray = new Uint8Array(analyser.frequencyBinCount)
+    let monitorCount = 0
+    const maxMonitorCount = 10 // Monitor for 10 iterations
+
+    const checkLevels = () => {
+      if (monitorCount >= maxMonitorCount) return
+
+      analyser.getByteFrequencyData(dataArray)
+      const average = dataArray.reduce((a, b) => a + b) / dataArray.length
+      
+      if (average > 0) {
+        console.log(`🔊 [AUDIO-MONITOR] Speaker ${speakerId} audio level: ${average.toFixed(2)}`)
+      }
+
+      monitorCount++
+      if (monitorCount < maxMonitorCount) {
+        requestAnimationFrame(checkLevels)
+      }
+    }
+
+    // Start monitoring after a short delay
+    setTimeout(checkLevels, 1000)
+  }
+
+  /**
+   * Test direct audio playback (debugging)
+   */
+  public async testDirectAudioPlayback(speakerId: string): Promise<void> {
+    const stream = this.state.speakerStreams.get(speakerId)
+    if (!stream) {
+      console.error(`❌ [TEST] No stream found for speaker ${speakerId}`)
+      return
+    }
+
+    console.log('🧪 [TEST] Testing direct audio playback for speaker', speakerId)
+    
+    const testAudio = document.createElement('audio')
+    testAudio.srcObject = stream
+    testAudio.volume = 1.0
+    testAudio.muted = false
+    testAudio.controls = true
+    testAudio.style.position = 'fixed'
+    testAudio.style.bottom = '10px'
+    testAudio.style.right = '10px'
+    testAudio.style.zIndex = '9999'
+    
+    document.body.appendChild(testAudio)
+    
+    try {
+      await testAudio.play()
+      console.log('✅ [TEST] Direct audio playback started')
+    } catch (error) {
+      console.error('❌ [TEST] Direct audio playback failed:', error)
+    }
+  }
+
+  /**
    * Setup user interaction handler for audio playback
    */
   private setupUserInteractionHandler(): void {
@@ -1491,10 +1605,24 @@ export class VoiceBroadcastManager {
           console.log(
             '🔊 [USER-INTERACTION] Attempting to start audio playback after user interaction'
           )
+          
+          // Ensure element is unmuted
+          this.state.audioElement.muted = false
+          this.state.audioElement.volume = 1.0
+          
           await this.state.audioElement.play()
           console.log(
             '✅ [USER-INTERACTION] Audio playback started successfully after user interaction'
           )
+          
+          // Debug playback state
+          console.log('🔊 [USER-INTERACTION] Audio element state:', {
+            paused: this.state.audioElement.paused,
+            muted: this.state.audioElement.muted,
+            volume: this.state.audioElement.volume,
+            readyState: this.state.audioElement.readyState,
+            currentTime: this.state.audioElement.currentTime,
+          })
         }
 
         // Remove event listeners after successful playback
