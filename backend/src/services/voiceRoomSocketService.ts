@@ -495,7 +495,18 @@ function handleUserLeavingVoiceRoom(
     // Remove user from voice room
     const result = voiceRoomManager.removeUser(user.id)
     
-    // Leave the voice room socket room
+    // Create the updated room state
+    const updatedRoomState = createVoiceRoomState(voiceRoomManager)
+    
+    // CRITICAL: Send update to the leaving user BEFORE they leave the room
+    socket.emit('voice_room_updated', updatedRoomState)
+    socket.emit('you_left_voice_room', { 
+      userId: user.id, 
+      timestamp: Date.now(),
+      reason: 'user_leaving'
+    })
+    
+    // Now they can leave the socket room
     socket.leave('voice_room')
     
     // Broadcast room state update to all remaining users

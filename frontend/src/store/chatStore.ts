@@ -203,6 +203,29 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
               set({ voiceRoomState: roomState })
             })
 
+            socket.on('you_left_voice_room', (data) => {
+              console.log('🚪 You have left the voice room:', data)
+              
+              // Clear all voice room state immediately
+              set({
+                voiceRoomState: null,
+                connectionStatus: ConnectionStatus.DISCONNECTED
+              })
+              
+              // Clean up voice room manager
+              const currentState = get()
+              if (currentState.voiceRoomManager) {
+                try {
+                  if (typeof currentState.voiceRoomManager.cleanup === 'function') {
+                    currentState.voiceRoomManager.cleanup()
+                  }
+                } catch (error) {
+                  console.error('Error cleaning up voice room manager:', error)
+                }
+                set({ voiceRoomManager: null })
+              }
+            })
+
             socket.on('speaker_changed', (newSpeakers: VoiceRoomUser[]) => {
               console.log('Speakers changed:', newSpeakers)
               set(state => ({

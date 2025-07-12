@@ -257,6 +257,21 @@ app.post('/api/voice-room/disconnect', (req, res) => {
     
     logger.info(`Successfully removed user ${userId} via beacon disconnect`)
     
+    // Find and notify the disconnecting user before broadcasting to others
+    const disconnectingSocket = Array.from(io.sockets.sockets.values())
+      .find(s => s.data.user?.id === userId)
+    
+    if (disconnectingSocket) {
+      // Send update to the leaving user FIRST
+      const roomState = createVoiceRoomState(voiceRoomManager)
+      disconnectingSocket.emit('voice_room_updated', roomState)
+      disconnectingSocket.emit('you_left_voice_room', { 
+        userId, 
+        timestamp: Date.now(),
+        reason: 'beacon_disconnect'
+      })
+    }
+    
     // Broadcast room state update to all connected users
     const roomState = createVoiceRoomState(voiceRoomManager)
     io.to('voice_room').emit('voice_room_updated', roomState)

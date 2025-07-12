@@ -151,6 +151,7 @@ export interface ServerToClientEvents {
   // Voice room events
   voice_room_joined: (roomState: VoiceRoomState) => void
   voice_room_updated: (roomState: VoiceRoomState) => void
+  you_left_voice_room: (data: { userId: string; timestamp: number; reason: string }) => void
   speaker_changed: (newSpeakers: VoiceRoomUser[]) => void
   audio_level_update: (update: AudioLevelUpdate) => void
   user_role_changed: (userId: string, newRole: UserRole) => void
