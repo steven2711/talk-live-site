@@ -221,26 +221,50 @@ const VoiceRoomInterface: React.FC = () => {
     const handleVisibilityChange = () => {
       if (document.hidden) {
         console.log('Page became hidden, starting disconnect timer');
-        // Give the user 30 seconds before disconnecting in case they're just switching tabs
+        
+        // Detect mobile devices for faster disconnect
+        const isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        const disconnectDelay = isMobile ? 10000 : 30000; // 10s mobile, 30s desktop
+        
+        console.log(`Using ${disconnectDelay/1000}s timeout for ${isMobile ? 'mobile' : 'desktop'} device`);
+        
         setTimeout(() => {
           if (document.hidden) {
-            console.log('Page still hidden after 30 seconds, disconnecting');
+            console.log(`Page still hidden after ${disconnectDelay/1000} seconds, disconnecting`);
             handleGracefulDisconnect();
           }
-        }, 30000);
+        }, disconnectDelay);
       }
     };
 
-    // Add event listeners
+    // Add event listeners with mobile-specific handlers
     window.addEventListener('beforeunload', handleBeforeUnload);
     window.addEventListener('pagehide', handlePageHide);
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    // Mobile-specific event handlers
+    window.addEventListener('blur', () => {
+      console.log('Window lost focus (mobile app switch?)');
+      // Don't immediately disconnect on blur, let visibilitychange handle it
+    });
+    
+    // Page Lifecycle API for mobile (if supported)
+    if ('onfreeze' in document) {
+      document.addEventListener('freeze', () => {
+        console.log('Page frozen by browser (mobile background)');
+        handleGracefulDisconnect();
+      });
+    }
 
     // Cleanup function
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('pagehide', handlePageHide);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', () => {});
+      if ('onfreeze' in document) {
+        document.removeEventListener('freeze', () => {});
+      }
     };
   }, [disconnect, voiceRoomManager, currentUser, socket]);
 

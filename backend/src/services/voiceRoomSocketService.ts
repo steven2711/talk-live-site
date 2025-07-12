@@ -472,7 +472,7 @@ export function setupVoiceRoomSocketHandlers(io: TypedServer, voiceRoomManager: 
   // Improved heartbeat mechanism with balanced cleanup intervals
   setInterval(() => {
     try {
-      const removedUsers = voiceRoomManager.cleanupInactiveUsers(120 * 1000) // 2 minutes inactivity
+      const removedUsers = voiceRoomManager.cleanupInactiveUsers(30 * 1000) // 30 seconds inactivity for mobile compatibility
       if (removedUsers.length > 0) {
         logger.info(`Voice room service: Cleaned up ${removedUsers.length} inactive users`)
         broadcastRoomState(io, voiceRoomManager)
