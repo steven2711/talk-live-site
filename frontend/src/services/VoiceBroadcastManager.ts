@@ -719,7 +719,7 @@ export class VoiceBroadcastManager {
     try {
       console.log(`📤 [WEBRTC] Creating offer for ${listenerId}`)
       const offer = await connection.createOffer({
-        offerToReceiveAudio: false, // We're sending audio, not receiving
+        offerToReceiveAudio: true, // Enable bidirectional audio for speaker-to-speaker connections
         offerToReceiveVideo: false,
       })
       await connection.setLocalDescription(offer)
