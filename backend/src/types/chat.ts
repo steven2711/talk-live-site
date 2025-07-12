@@ -164,6 +164,8 @@ export interface ServerToClientEvents {
   broadcast_ice_candidate: (data: { candidate: RTCIceCandidateInit; peerId: string }) => void
   listener_ready: (data: { listenerId: string; listenerUsername: string }) => void
   speaker_joined: (data: { speakerId: string; speakerUsername: string }) => void
+  speaker_promoted: (data: { newSpeakerId: string; listenerIds: string[]; speakerIds?: string[] }) => void
+  peer_disconnected: (peerId: string) => void
   
   // System events
   error: (error: string) => void

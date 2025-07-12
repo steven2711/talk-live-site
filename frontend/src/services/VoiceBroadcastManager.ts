@@ -190,9 +190,9 @@ export class VoiceBroadcastManager {
     // Handle speaker promotion
     this.socket.on(
       'speaker_promoted',
-      async (data: { newSpeakerId: string; listenerIds: string[] }) => {
+      async (data: { newSpeakerId: string; listenerIds: string[]; speakerIds?: string[] }) => {
         if (data.newSpeakerId === this.socket.id) {
-          await this.promoteSpeaker(data.newSpeakerId, data.listenerIds)
+          await this.promoteSpeaker(data.newSpeakerId, data.listenerIds, data.speakerIds)
         }
       }
     )
@@ -458,18 +458,20 @@ export class VoiceBroadcastManager {
    */
   async promoteSpeaker(
     _newSpeakerId: string,
-    listenerIds: string[]
+    listenerIds: string[],
+    speakerIds?: string[]
   ): Promise<void> {
     try {
       console.log('Being promoted to speaker')
+      console.log('Existing speaker IDs:', speakerIds)
 
       // Stop current listening state
       if (this.state.isActive && this.state.role === 'listener') {
         await this.stopListening()
       }
 
-      // Start speaking
-      await this.startSpeaking(listenerIds)
+      // Start speaking - pass both listener IDs and existing speaker IDs
+      await this.startSpeaking(listenerIds, speakerIds)
 
       console.log('Successfully promoted to speaker')
     } catch (error) {

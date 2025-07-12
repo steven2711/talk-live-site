@@ -70,6 +70,20 @@ export function setupVoiceRoomSocketHandlers(io: TypedServer, voiceRoomManager: 
         // Notify of role change if user became a speaker
         if (result.role === VoiceRoomRole.SPEAKER) {
           socket.emit('user_role_changed', user.id, result.role)
+          
+          // Emit speaker_promoted event with existing speaker IDs
+          const existingSpeakers = voiceRoomManager.getSpeakers()
+          const speakerIds = existingSpeakers
+            .filter(speaker => speaker.user.id !== user.id)
+            .map(speaker => speaker.user.id)
+          
+          socket.emit('speaker_promoted', {
+            newSpeakerId: user.id,
+            listenerIds: [], // New speaker doesn't need to connect to listeners
+            speakerIds: speakerIds // Existing speakers to connect with
+          })
+          
+          logger.info(`Emitted speaker_promoted for ${user.username} with ${speakerIds.length} existing speakers`)
         }
 
         logger.info(`User ${username} (${user.id}) joined voice room as ${result.role}${result.queuePosition ? ` at queue position ${result.queuePosition}` : ''}`)
@@ -487,6 +501,9 @@ function handleUserLeavingVoiceRoom(
     // Broadcast room state update to all remaining users
     broadcastRoomState(io, voiceRoomManager)
     
+    // Notify all users that this peer has disconnected (for WebRTC cleanup)
+    io.to('voice_room').emit('peer_disconnected', user.id)
+    
     // If users were promoted to speakers, notify everyone
     if (result.promotedUsers && result.promotedUsers.length > 0) {
       result.promotedUsers.forEach(promotedUser => {
@@ -494,6 +511,24 @@ function handleUserLeavingVoiceRoom(
         const promotedSocket = io.sockets.sockets.get(promotedUser.user.socketId)
         if (promotedSocket) {
           promotedSocket.emit('user_role_changed', promotedUser.user.id, VoiceRoomRole.SPEAKER)
+          
+          // Emit speaker_promoted event with existing speaker IDs
+          const existingSpeakers = voiceRoomManager.getSpeakers()
+          const speakerIds = existingSpeakers
+            .filter(speaker => speaker.user.id !== promotedUser.user.id)
+            .map(speaker => speaker.user.id)
+          
+          // Get listener IDs for the new speaker to offer streams to
+          const listeners = voiceRoomManager.getListenerQueue()
+          const listenerIds = listeners.map(listener => listener.user.id)
+          
+          promotedSocket.emit('speaker_promoted', {
+            newSpeakerId: promotedUser.user.id,
+            listenerIds: listenerIds,
+            speakerIds: speakerIds
+          })
+          
+          logger.info(`Emitted speaker_promoted for promoted user ${promotedUser.user.username} with ${speakerIds.length} existing speakers and ${listenerIds.length} listeners`)
         }
       })
       

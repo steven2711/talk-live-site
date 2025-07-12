@@ -18,7 +18,9 @@ import type {
   ClientToServerEvents,
   InterServerEvents,
   SocketData,
+  VoiceRoomState,
 } from './types/index.js'
+import { VoiceRoomRole } from './types/index.js'
 
 // Log startup
 logger.info('Starting server initialization...')
@@ -70,6 +72,20 @@ const chatManager = new ChatManager()
 // Create global voice room manager instance
 logger.info('Creating global voice room manager instance...')
 const voiceRoomManager = new GlobalVoiceRoomManager(2) // Max 2 speakers
+
+// Helper function to create voice room state
+function createVoiceRoomState(voiceRoomManager: GlobalVoiceRoomManager): VoiceRoomState {
+  const room = voiceRoomManager.getRoomState()
+  return {
+    roomId: room.id,
+    speakers: room.speakers,
+    listeners: room.listeners,
+    totalUsers: room.speakers.length + room.listeners.length,
+    maxSpeakers: room.maxSpeakers,
+    isRecording: false,
+    roomStartTime: room.createdAt
+  }
+}
 
 // Middleware setup
 logger.info('Setting up Express middleware...')
@@ -241,13 +257,52 @@ app.post('/api/voice-room/disconnect', (req, res) => {
     
     logger.info(`Successfully removed user ${userId} via beacon disconnect`)
     
+    // Broadcast room state update to all connected users
+    const roomState = createVoiceRoomState(voiceRoomManager)
+    io.to('voice_room').emit('voice_room_updated', roomState)
+    
+    // Broadcast peer disconnection to all users
+    io.to('voice_room').emit('peer_disconnected', userId)
+    
+    // Broadcast queue updates
+    const listeners = voiceRoomManager.getListenerQueue()
+    io.to('voice_room').emit('queue_updated', listeners)
+    
     // Handle promotions if any users were promoted
     if (result.promotedUsers && result.promotedUsers.length > 0) {
       logger.info(`Promoted ${result.promotedUsers.length} users to speaker after disconnect`)
+      
+      // Notify promoted users and emit speaker_promoted events
+      result.promotedUsers.forEach(promotedUser => {
+        // Find the socket for the promoted user
+        const promotedSocket = Array.from(io.sockets.sockets.values())
+          .find(s => s.data.user?.id === promotedUser.user.id)
+          
+        if (promotedSocket) {
+          promotedSocket.emit('user_role_changed', promotedUser.user.id, VoiceRoomRole.SPEAKER)
+          
+          // Emit speaker_promoted event with existing speaker IDs
+          const existingSpeakers = voiceRoomManager.getSpeakers()
+          const speakerIds = existingSpeakers
+            .filter(speaker => speaker.user.id !== promotedUser.user.id)
+            .map(speaker => speaker.user.id)
+          
+          const listenerIds = listeners.map(listener => listener.user.id)
+          
+          promotedSocket.emit('speaker_promoted', {
+            newSpeakerId: promotedUser.user.id,
+            listenerIds: listenerIds,
+            speakerIds: speakerIds
+          })
+          
+          logger.info(`Emitted speaker_promoted for beacon-promoted user ${promotedUser.user.username}`)
+        }
+      })
+      
+      // Broadcast speaker changes to all users
+      const speakers = voiceRoomManager.getSpeakers()
+      io.to('voice_room').emit('speaker_changed', speakers)
     }
-    
-    // In a real implementation, we'd broadcast the update to all connected sockets
-    // For now, we'll rely on the periodic cleanup to handle updates
     
     return res.json({ 
       success: true, 
