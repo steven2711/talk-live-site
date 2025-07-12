@@ -1,0 +1,99 @@
+--- a/backend/src/services/voiceRoomSocketService.ts
++++ b/backend/src/services/voiceRoomSocketService.ts
+@@ -443,6 +443,10 @@ export function setupVoiceRoomSocketHandlers(io: TypedServer, voiceRoomManager:
+       try {
+         const user = socket.data.user
+         if (user) {
++          // FIXED: Immediately notify all users about disconnection
++          io.to('voice_room').emit('peer_disconnected', user.id)
++          logger.info(`🔌 Emitted peer_disconnected for ${user.id} to all room members`)
++          
+           handleUserLeavingVoiceRoom(socket, user, voiceRoomManager, io)
+           logger.info(`User ${user.username} (${user.id}) disconnected from voice room: ${reason}`)
+         } else {
+@@ -458,13 +462,19 @@ export function setupVoiceRoomSocketHandlers(io: TypedServer, voiceRoomManager:
+   // Improved heartbeat mechanism with balanced cleanup intervals
+   setInterval(() => {
+     try {
+-      const removedUsers = voiceRoomManager.cleanupInactiveUsers(120 * 1000) // 2 minutes inactivity
++      // FIXED: Reduced from 120 seconds to 30 seconds
++      const removedUsers = voiceRoomManager.cleanupInactiveUsers(30 * 1000)
+       if (removedUsers.length > 0) {
+         logger.info(`Voice room service: Cleaned up ${removedUsers.length} inactive users`)
+         broadcastRoomState(io, voiceRoomManager)
++        
++        // FIXED: Emit peer_disconnected for each removed user
++        removedUsers.forEach(user => {
++          io.to('voice_room').emit('peer_disconnected', user.id)
++        })
+       }
+     } catch (error) {
+       logger.error(`Error during voice room cleanup: ${error}`)
+     }
+-  }, 15 * 1000) // Run every 15 seconds for balanced cleanup
++  }, 5 * 1000) // FIXED: Run every 5 seconds instead of 15
+
+--- a/frontend/src/services/VoiceBroadcastManager.ts
++++ b/frontend/src/services/VoiceBroadcastManager.ts
+@@ -83,6 +83,17 @@ export class VoiceBroadcastManager {
+     this.setupSocketHandlers()
+     this.startConnectionHealthMonitoring()
+     this.runNetworkDiagnostics()
++    
++    // FIXED: Add cleanup on window events
++    if (typeof window !== 'undefined') {
++      window.addEventListener('beforeunload', () => {
++        this.cleanup()
++      })
++      
++      window.addEventListener('unload', () => {
++        this.cleanup()
++      })
++    }
+     
+     // Expose test function to window for debugging
+     if (typeof window !== 'undefined') {
+@@ -1926,10 +1937,10 @@ export class VoiceBroadcastManager {
+    */
+   private startConnectionHealthMonitoring(): void {
+-    // Check connection health every 15 seconds for faster detection
++    // FIXED: Check every 5 seconds instead of 15
+     setInterval(() => {
+       this.checkConnectionHealth()
+-    }, 15000)
++    }, 5000)
+ 
+-    // Check for stuck connections more aggressively
++    // FIXED: Check every 5 seconds instead of 10
+     setInterval(() => {
+       this.checkStuckConnections()
+-    }, 10000)
++    }, 5000)
+   }
+ 
+@@ -1951,8 +1962,8 @@ export class VoiceBroadcastManager {
+         if (!peer.stuckSince) {
+           peer.stuckSince = Date.now()
+-        } else if (Date.now() - peer.stuckSince > 20000) {
+-          // 20 seconds
++        } else if (Date.now() - peer.stuckSince > 10000) {
++          // FIXED: 10 seconds instead of 20
+           console.warn(
+-            `🔄 [WEBRTC] Connection to ${peerId} stuck in ${connectionState}/${iceConnectionState} for 20s, restarting`
++            `🔄 [WEBRTC] Connection to ${peerId} stuck in ${connectionState}/${iceConnectionState} for 10s, restarting`
+           )
+           this.attemptConnectionRecovery(peerId)
+@@ -2454,6 +2465,13 @@ export class VoiceBroadcastManager {
+   async cleanup(): Promise<void> {
+     console.log('🔊 [CLEANUP] Cleaning up VoiceBroadcastManager')
+ 
++    // FIXED: Notify server immediately about leaving
++    this.socket.emit('leave_voice_room')
++    
++    // FIXED: Notify about all peer disconnections
++    this.state.remotePeers.forEach((peer, peerId) => {
++      this.socket.emit('peer_disconnected', peerId)
++    })
++
+     // Remove user interaction handlers
+     this.removeUserInteractionListeners()

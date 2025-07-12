@@ -1,0 +1,29 @@
+--- a/frontend/src/services/VoiceBroadcastManager.ts
++++ b/frontend/src/services/VoiceBroadcastManager.ts
+@@ -719,8 +719,8 @@ export class VoiceBroadcastManager {
+     try {
+       console.log(`📤 [WEBRTC] Creating offer for ${listenerId}`)
+       const offer = await connection.createOffer({
+-        offerToReceiveAudio: false, // We're sending audio, not receiving
++        offerToReceiveAudio: true, // FIXED: Changed to true for bidirectional audio
+         offerToReceiveVideo: false,
+       })
+       await connection.setLocalDescription(offer)
+@@ -1252,13 +1252,15 @@ export class VoiceBroadcastManager {
+ 
+       this.state.speakerStreams.set(speakerId, stream)
+ 
+-      // Always skip our own stream to prevent self-hearing
++      // Skip our own stream to prevent self-hearing
+       if (speakerId === this.socket.id) {
+         console.log(
+           `🔇 [AUDIO] Skipping own stream ${speakerId} to prevent self-hearing`
+         )
+         this.emitStateChange()
+         return
+       }
++      
++      // IMPORTANT: Continue processing for ALL other speakers (not just listeners)
+ 
+       console.log(
+         `🎵 [AUDIO] Processing remote speaker stream from ${speakerId}`
