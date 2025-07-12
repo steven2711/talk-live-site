@@ -163,6 +163,7 @@ export interface ServerToClientEvents {
   broadcast_answer: (data: { answer: RTCSessionDescriptionInit; listenerId: string }) => void
   broadcast_ice_candidate: (data: { candidate: RTCIceCandidateInit; peerId: string }) => void
   listener_ready: (data: { listenerId: string; listenerUsername: string }) => void
+  speaker_joined: (data: { speakerId: string; speakerUsername: string }) => void
   
   // System events
   error: (error: string) => void

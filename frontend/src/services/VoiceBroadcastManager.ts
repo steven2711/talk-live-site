@@ -88,6 +88,34 @@ export class VoiceBroadcastManager {
     if (typeof window !== 'undefined') {
       ;(window as any).testAudioPlayback = (speakerId: string) => this.testDirectAudioPlayback(speakerId)
       ;(window as any).voiceBroadcastManager = this
+      ;(window as any).debugAudioState = () => {
+        console.log('=== AUDIO DEBUG STATE ===')
+        console.log('Role:', this.state.role)
+        console.log('Is Active:', this.state.isActive)
+        console.log('Audio Context:', this.state.audioContext?.state)
+        console.log('Speaker Streams:', Array.from(this.state.speakerStreams.entries()).map(([id, stream]) => ({
+          speakerId: id,
+          streamId: stream.id,
+          active: stream.active,
+          tracks: stream.getTracks().map(t => ({
+            id: t.id,
+            enabled: t.enabled,
+            muted: t.muted,
+            readyState: t.readyState,
+          }))
+        })))
+        console.log('Audio Element:', {
+          exists: !!this.state.audioElement,
+          paused: this.state.audioElement?.paused,
+          muted: this.state.audioElement?.muted,
+          volume: this.state.audioElement?.volume,
+          readyState: this.state.audioElement?.readyState,
+          currentTime: this.state.audioElement?.currentTime,
+          srcObject: !!this.state.audioElement?.srcObject,
+        })
+        console.log('Gain Nodes:', Array.from(this.state.gainNodes.keys()))
+        console.log('=== END DEBUG STATE ===')
+      }
     }
   }
 
@@ -169,6 +197,38 @@ export class VoiceBroadcastManager {
       }
     )
 
+    // Handle new speaker joining (speakers need to connect to each other)
+    this.socket.on(
+      'speaker_joined',
+      async (data: { speakerId: string; speakerUsername: string }) => {
+        console.log(
+          `🎤 [WEBRTC] New speaker joined: ${data.speakerUsername} (${data.speakerId})`
+        )
+
+        // If we're also a speaker and it's not us, create a connection to the new speaker
+        if (
+          this.state.role === 'speaker' &&
+          this.state.isActive &&
+          data.speakerId !== this.socket.id
+        ) {
+          try {
+            console.log(
+              `🎤 [WEBRTC] Creating speaker-to-speaker connection to ${data.speakerId}`
+            )
+            await this.createSpeakerConnection(data.speakerId)
+            console.log(
+              `✅ [WEBRTC] Speaker-to-speaker connection created for ${data.speakerId}`
+            )
+          } catch (error) {
+            console.error(
+              `❌ [WEBRTC] Failed to create speaker-to-speaker connection to ${data.speakerId}:`,
+              error
+            )
+          }
+        }
+      }
+    )
+
     // Handle speaker demotion
     this.socket.on(
       'speaker_demoted',
@@ -188,12 +248,13 @@ export class VoiceBroadcastManager {
   }
 
   /**
-   * For speakers: Start broadcasting to all listeners
+   * For speakers: Start broadcasting to all listeners and other speakers
    */
-  async startSpeaking(listenerIds: string[]): Promise<void> {
+  async startSpeaking(listenerIds: string[], speakerIds?: string[]): Promise<void> {
     try {
       console.log('🎤 [WEBRTC] Starting to speak...')
-      console.log(`🎤 [WEBRTC] Target peer IDs:`, listenerIds)
+      console.log(`🎤 [WEBRTC] Target listener IDs:`, listenerIds)
+      console.log(`🎤 [WEBRTC] Target speaker IDs:`, speakerIds || [])
 
       if (this.state.isActive) {
         throw new Error('Already broadcasting')
@@ -213,6 +274,17 @@ export class VoiceBroadcastManager {
         '🎤 [WEBRTC] Microphone access granted, stream:',
         this.state.localStream
       )
+      
+      // Debug local stream tracks
+      const localTracks = this.state.localStream.getTracks()
+      console.log('🎤 [WEBRTC] Local stream tracks:', localTracks.map(t => ({
+        id: t.id,
+        kind: t.kind,
+        enabled: t.enabled,
+        muted: t.muted,
+        readyState: t.readyState,
+        settings: t.getSettings(),
+      })))
 
       this.state.role = 'speaker'
       this.state.isActive = true
@@ -223,15 +295,30 @@ export class VoiceBroadcastManager {
 
       // Create connections to all listeners
       console.log(
-        `🎤 [WEBRTC] Creating WebRTC connections to ${listenerIds.length} peers...`
+        `🎤 [WEBRTC] Creating WebRTC connections to ${listenerIds.length} listeners...`
       )
       for (const listenerId of listenerIds) {
-        console.log(`🎤 [WEBRTC] Creating connection to peer: ${listenerId}`)
+        console.log(`🎤 [WEBRTC] Creating connection to listener: ${listenerId}`)
         await this.createSpeakerConnection(listenerId)
       }
 
+      // Also create connections to other speakers for bidirectional audio
+      if (speakerIds && speakerIds.length > 0) {
+        console.log(
+          `🎤 [WEBRTC] Creating WebRTC connections to ${speakerIds.length} speakers...`
+        )
+        for (const speakerId of speakerIds) {
+          // Don't create connection to ourselves
+          if (speakerId !== this.socket.id) {
+            console.log(`🎤 [WEBRTC] Creating connection to speaker: ${speakerId}`)
+            await this.createSpeakerConnection(speakerId)
+          }
+        }
+      }
+
+      const totalConnections = listenerIds.length + (speakerIds?.filter(id => id !== this.socket.id).length || 0)
       console.log(
-        `✅ [WEBRTC] Started broadcasting to ${listenerIds.length} peers`
+        `✅ [WEBRTC] Started broadcasting to ${totalConnections} peers`
       )
     } catch (error) {
       console.error('❌ [WEBRTC] Failed to start speaking:', error)
@@ -632,7 +719,7 @@ export class VoiceBroadcastManager {
     try {
       console.log(`📤 [WEBRTC] Creating offer for ${listenerId}`)
       const offer = await connection.createOffer({
-        offerToReceiveAudio: true,
+        offerToReceiveAudio: false, // We're sending audio, not receiving
         offerToReceiveVideo: false,
       })
       await connection.setLocalDescription(offer)
@@ -690,6 +777,12 @@ export class VoiceBroadcastManager {
           }
         )
 
+        // Ensure track is enabled
+        if (!event.track.enabled) {
+          console.log(`🔊 [WEBRTC] Enabling track from speaker ${speakerId}`)
+          event.track.enabled = true
+        }
+
         const [stream] = event.streams
         if (stream) {
           console.log(
@@ -700,8 +793,17 @@ export class VoiceBroadcastManager {
               trackCount: stream.getTracks().length,
             }
           )
+          
+          // Ensure all tracks in the stream are enabled
+          stream.getTracks().forEach(track => {
+            if (!track.enabled) {
+              console.log(`🔊 [WEBRTC] Enabling track ${track.id} in stream`)
+              track.enabled = true
+            }
+          })
+          
           console.log(
-            `🎵 [WEBRTC] Stream tracks:`,
+            `🎵 [WEBRTC] Stream tracks after enabling:`,
             stream.getTracks().map(t => ({
               id: t.id,
               kind: t.kind,
@@ -1212,6 +1314,12 @@ export class VoiceBroadcastManager {
           `🎵 [AUDIO] Connected speaker ${speakerId} to audio mixer destination`
         )
 
+        // Debug connection state
+        console.log(`🎵 [AUDIO-DEBUG] Audio context state: ${this.state.audioContext.state}`)
+        console.log(`🎵 [AUDIO-DEBUG] Source node channel count: ${source.channelCount}`)
+        console.log(`🎵 [AUDIO-DEBUG] Gain node channel count: ${gainNode.channelCount}`)
+        console.log(`🎵 [AUDIO-DEBUG] Destination channel count: ${this.state.mixedAudioDestination.channelCount}`)
+        
         // Monitor audio levels
         this.monitorAudioLevels(speakerId, analyser)
 

@@ -120,6 +120,44 @@ export class BroadcastingService {
 
   private setupSocketHandlers(): void {
     // Room state updates
+    this.socket.on('voice_room_updated', (roomState: any) => {
+      const oldSpeakers = [...this.roomState.speakers];
+      
+      // Update room state with proper structure
+      this.roomState.speakers = roomState.speakers.map((speaker: any) => ({
+        id: speaker.user.id,
+        username: speaker.user.username,
+        audioLevel: speaker.audioLevel || 0
+      }));
+      
+      this.roomState.listeners = roomState.listeners.map((listener: any) => ({
+        id: listener.user.id,
+        username: listener.user.username
+      }));
+      
+      // Determine current user role
+      const currentUserId = this.socket.id;
+      const isSpeaker = roomState.speakers.some((s: any) => s.user.id === currentUserId);
+      const isListener = roomState.listeners.some((l: any) => l.user.id === currentUserId);
+      
+      if (isSpeaker && this.roomState.currentUserRole !== 'speaker') {
+        this.roomState.currentUserRole = 'speaker';
+      } else if (isListener && this.roomState.currentUserRole !== 'listener') {
+        this.roomState.currentUserRole = 'listener';
+      }
+      
+      // Emit speaker_joined events for new speakers
+      const newSpeakers = this.roomState.speakers.filter(
+        speaker => !oldSpeakers.some(old => old.id === speaker.id)
+      );
+      
+      newSpeakers.forEach(speaker => {
+        console.log(`🎤 [BROADCAST] New speaker detected: ${speaker.username} (${speaker.id})`);
+        // Backend will emit speaker_joined events to handle speaker-to-speaker connections
+      });
+    });
+    
+    // Keep backward compatibility
     this.socket.on('room_state_updated', (data: { speakers: string[], listeners: string[], queue: string[] }) => {
       this.updateRoomState(data);
     });
@@ -367,8 +405,13 @@ export class BroadcastingService {
 
   private async handlePromotion(listenerIds: string[]): Promise<void> {
     try {
+      // Get current speaker IDs (excluding ourselves)
+      const speakerIds = this.roomState.speakers
+        .map(s => s.id)
+        .filter(id => id !== this.socket.id);
+      
       await this.transitionManager.handleSpeakerPromotion(this.socket.id!, listenerIds);
-      await this.broadcastManager.startSpeaking(listenerIds);
+      await this.broadcastManager.startSpeaking(listenerIds, speakerIds);
       
       this.roomState.currentUserRole = 'speaker';
       this.setConnectionState(ConnectionState.BROADCASTING);
@@ -376,7 +419,8 @@ export class BroadcastingService {
       
       this.emit(BroadcastingEvents.ROLE_CHANGED, {
         newRole: 'speaker',
-        listenerIds
+        listenerIds,
+        speakerIds
       });
     } catch (error) {
       this.handleError(error as Error);

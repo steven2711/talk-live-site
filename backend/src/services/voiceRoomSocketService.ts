@@ -538,6 +538,22 @@ function broadcastRoomState(io: TypedServer, voiceRoomManager: GlobalVoiceRoomMa
       }
     })
     
+    // Notify all speakers when a new speaker joins
+    roomState.speakers.forEach(speaker => {
+      // Notify each existing speaker about all other speakers
+      const speakerSocket = io.sockets.sockets.get(speaker.user.socketId)
+      if (speakerSocket) {
+        roomState.speakers.forEach(otherSpeaker => {
+          if (otherSpeaker.user.id !== speaker.user.id) {
+            speakerSocket.emit('speaker_joined', {
+              speakerId: otherSpeaker.user.id,
+              speakerUsername: otherSpeaker.user.username
+            })
+          }
+        })
+      }
+    })
+    
   } catch (error) {
     logger.error(`Error broadcasting room state: ${error}`)
   }
